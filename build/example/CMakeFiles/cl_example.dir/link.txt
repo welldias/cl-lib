@@ -1,1 +1,0 @@
-/usr/bin/cc -g -Wl,--dependency-file=CMakeFiles/cl_example.dir/link.d CMakeFiles/cl_example.dir/main.c.o -o cl_example  -Wl,-rpath,/home/welldias/src/cl-lib/cl-lib/build/src ../src/libcl.so

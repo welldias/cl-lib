@@ -1,2 +1,0 @@
-/usr/bin/ar qc libcl.a CMakeFiles/cl_static.dir/cl.c.o CMakeFiles/cl_static.dir/cl_arena.c.o CMakeFiles/cl_static.dir/cl_ast.c.o CMakeFiles/cl_static.dir/cl_lexer.c.o CMakeFiles/cl_static.dir/cl_template.c.o CMakeFiles/cl_static.dir/cl_parser.c.o CMakeFiles/cl_static.dir/cl_navigate.c.o CMakeFiles/cl_static.dir/cl_mutate.c.o CMakeFiles/cl_static.dir/cl_writer.c.o CMakeFiles/cl_static.dir/cl_eval.c.o CMakeFiles/cl_static.dir/cl_functions.c.o
-/usr/bin/ranlib libcl.a
