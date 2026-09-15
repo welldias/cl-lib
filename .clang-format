@@ -1,0 +1,10 @@
+﻿---
+AlignAfterOpenBracket: DontAlign
+ColumnLimit: '2048'
+IndentWidth: '4'
+TabWidth: '4'
+AlignConsecutiveAssignments: true
+AlignArrayOfStructures: Left
+Cpp11BracedListStyle: false
+AllowShortFunctionsOnASingleLine : false
+...

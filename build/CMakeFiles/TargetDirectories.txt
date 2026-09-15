@@ -1,0 +1,17 @@
+/home/welldias/src/cl-lib/cl-lib/build/CMakeFiles/test.dir
+/home/welldias/src/cl-lib/cl-lib/build/CMakeFiles/edit_cache.dir
+/home/welldias/src/cl-lib/cl-lib/build/CMakeFiles/rebuild_cache.dir
+/home/welldias/src/cl-lib/cl-lib/build/src/CMakeFiles/cl_static.dir
+/home/welldias/src/cl-lib/cl-lib/build/src/CMakeFiles/cl_shared.dir
+/home/welldias/src/cl-lib/cl-lib/build/src/CMakeFiles/test.dir
+/home/welldias/src/cl-lib/cl-lib/build/src/CMakeFiles/edit_cache.dir
+/home/welldias/src/cl-lib/cl-lib/build/src/CMakeFiles/rebuild_cache.dir
+/home/welldias/src/cl-lib/cl-lib/build/example/CMakeFiles/cl_example.dir
+/home/welldias/src/cl-lib/cl-lib/build/example/CMakeFiles/cl_tool.dir
+/home/welldias/src/cl-lib/cl-lib/build/example/CMakeFiles/test.dir
+/home/welldias/src/cl-lib/cl-lib/build/example/CMakeFiles/edit_cache.dir
+/home/welldias/src/cl-lib/cl-lib/build/example/CMakeFiles/rebuild_cache.dir
+/home/welldias/src/cl-lib/cl-lib/build/tests/CMakeFiles/cl_tests.dir
+/home/welldias/src/cl-lib/cl-lib/build/tests/CMakeFiles/test.dir
+/home/welldias/src/cl-lib/cl-lib/build/tests/CMakeFiles/edit_cache.dir
+/home/welldias/src/cl-lib/cl-lib/build/tests/CMakeFiles/rebuild_cache.dir

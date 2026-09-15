@@ -1,0 +1,10 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/welldias/src/cl-lib/cl-lib/build/cmake_install.cmake",
+		"/home/welldias/src/cl-lib/cl-lib/build/src/cmake_install.cmake",
+		"/home/welldias/src/cl-lib/cl-lib/build/example/cmake_install.cmake",
+		"/home/welldias/src/cl-lib/cl-lib/build/tests/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
