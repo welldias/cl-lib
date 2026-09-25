@@ -59,6 +59,45 @@ static cl_expr_t *cl_parse_expr(cl_parser_state_t *state);
 /* Primary expressions                                                  */
 /* ------------------------------------------------------------------ */
 
+/* Parses the inside of a "[...]" traversal step, with the '[' already
+ * consumed, through the closing ']'. A lone number or string literal keeps
+ * producing CL_STEP_INDEX_NUMBER/CL_STEP_INDEX_STRING exactly as before (so
+ * the writer, round-trips and the block-label resolution in cl_eval.c see
+ * no difference); anything else - an identifier, an interpolated string, an
+ * operator, a call - becomes a CL_STEP_INDEX_EXPR evaluated at eval time.
+ * Only fills the fields of `out` that its kind uses; `out->name` points at
+ * token/AST text the caller copies. Returns 0 on success. */
+static int cl_parse_index_step(cl_parser_state_t *state, cl_traversal_step_t *out) {
+    const cl_token_t *index_tok = cl_cur(state);
+    int lone_literal = cl_peek_tok(state, 1)->kind == CL_TOK_RBRACKET;
+
+    if (lone_literal && index_tok->kind == CL_TOK_NUMBER) {
+        cl_advance_token(state);
+        out->kind = CL_STEP_INDEX_NUMBER;
+        out->index = index_tok->number;
+    } else {
+        cl_expr_t *index = cl_parse_expr(state);
+        if (state->failed) {
+            return -1;
+        }
+        if (lone_literal && index->kind == CL_EXPR_STRING) {
+            out->kind = CL_STEP_INDEX_STRING;
+            out->name = index->as.string_value;
+        } else {
+            out->kind = CL_STEP_INDEX_EXPR;
+            out->expr = index;
+        }
+    }
+
+    const cl_token_t *close_tok = cl_cur(state);
+    if (close_tok->kind != CL_TOK_RBRACKET) {
+        cl_fail(state, close_tok, "esperado ']'");
+        return -1;
+    }
+    cl_advance_token(state);
+    return 0;
+}
+
 static cl_expr_t *cl_parse_traversal(cl_parser_state_t *state) {
     const cl_token_t *root_tok = cl_cur(state);
     cl_advance_token(state);
@@ -88,23 +127,17 @@ static cl_expr_t *cl_parse_traversal(cl_parser_state_t *state) {
                 cl_expr_traversal_add_splat_full(state->doc, expr);
                 continue;
             }
-            const cl_token_t *index_tok = cl_cur(state);
-            if (index_tok->kind == CL_TOK_STRING) {
-                cl_advance_token(state);
-                cl_expr_traversal_add_index_string(state->doc, expr, index_tok->text);
-            } else if (index_tok->kind == CL_TOK_NUMBER) {
-                cl_advance_token(state);
-                cl_expr_traversal_add_index_number(state->doc, expr, index_tok->number);
+            cl_traversal_step_t step;
+            if (cl_parse_index_step(state, &step) != 0) {
+                return NULL;
+            }
+            if (step.kind == CL_STEP_INDEX_STRING) {
+                cl_expr_traversal_add_index_string(state->doc, expr, step.name);
+            } else if (step.kind == CL_STEP_INDEX_NUMBER) {
+                cl_expr_traversal_add_index_number(state->doc, expr, step.index);
             } else {
-                cl_fail(state, index_tok, "esperado indice numerico ou string em '[...]'");
-                return NULL;
+                cl_expr_traversal_add_index_expr(state->doc, expr, step.expr);
             }
-            const cl_token_t *close_tok = cl_cur(state);
-            if (close_tok->kind != CL_TOK_RBRACKET) {
-                cl_fail(state, close_tok, "esperado ']'");
-                return NULL;
-            }
-            cl_advance_token(state);
         } else {
             break;
         }
@@ -154,23 +187,17 @@ static cl_expr_t *cl_parse_postfix_steps(cl_parser_state_t *state, cl_expr_t *ba
                 cl_expr_postfix_add_splat_full(state->doc, expr);
                 continue;
             }
-            const cl_token_t *index_tok = cl_cur(state);
-            if (index_tok->kind == CL_TOK_STRING) {
-                cl_advance_token(state);
-                cl_expr_postfix_add_index_string(state->doc, expr, index_tok->text);
-            } else if (index_tok->kind == CL_TOK_NUMBER) {
-                cl_advance_token(state);
-                cl_expr_postfix_add_index_number(state->doc, expr, index_tok->number);
+            cl_traversal_step_t step;
+            if (cl_parse_index_step(state, &step) != 0) {
+                return NULL;
+            }
+            if (step.kind == CL_STEP_INDEX_STRING) {
+                cl_expr_postfix_add_index_string(state->doc, expr, step.name);
+            } else if (step.kind == CL_STEP_INDEX_NUMBER) {
+                cl_expr_postfix_add_index_number(state->doc, expr, step.index);
             } else {
-                cl_fail(state, index_tok, "esperado indice numerico ou string em '[...]'");
-                return NULL;
+                cl_expr_postfix_add_index_expr(state->doc, expr, step.expr);
             }
-            const cl_token_t *close_tok = cl_cur(state);
-            if (close_tok->kind != CL_TOK_RBRACKET) {
-                cl_fail(state, close_tok, "esperado ']'");
-                return NULL;
-            }
-            cl_advance_token(state);
         } else {
             break;
         }

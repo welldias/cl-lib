@@ -174,3 +174,13 @@ warm_temp          = { cold = 10, warm = 25 }["warm"]
 second_coordinate  = [100, 200, 300][1]
 loudest_short_zone = [for z in zones : upper(z)][0]
 all_zone_labels    = concat(garden_zones, [])[*].label
+
+# --- dynamic indexing: any expression inside "[...]" -----------------------
+
+current_zone_index = 1
+current_zone       = zones[current_zone_index]
+last_zone          = zones[length(zones) - 1]
+fern_or_moss       = { indirect = "fern", shade = "moss" }[moss_sunlight]
+zone_humidity_map  = {for z in garden_zones : z.label => z.humidity}
+bloom_humidity     = zone_humidity_map[zones[1]]
+next_zones         = [for i, z in zones : zones[(i + 1) % length(zones)]]

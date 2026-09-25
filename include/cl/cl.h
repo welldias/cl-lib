@@ -50,13 +50,16 @@ typedef enum cl_traversal_step_kind {
     CL_STEP_INDEX_NUMBER,
     CL_STEP_INDEX_STRING,
     CL_STEP_SPLAT_ATTR, /* ".*" */
-    CL_STEP_SPLAT_FULL  /* "[*]" */
+    CL_STEP_SPLAT_FULL, /* "[*]" */
+    CL_STEP_INDEX_EXPR  /* "[expr]" - anything but a lone number/string literal */
 } cl_traversal_step_kind_t;
 
 typedef struct cl_traversal_step {
     cl_traversal_step_kind_t kind;
-    char *name;   /* CL_STEP_ATTR / CL_STEP_INDEX_STRING */
-    double index; /* CL_STEP_INDEX_NUMBER */
+    char *name;         /* CL_STEP_ATTR / CL_STEP_INDEX_STRING */
+    double index;       /* CL_STEP_INDEX_NUMBER */
+    struct cl_expr *expr; /* CL_STEP_INDEX_EXPR; evaluates to a number (list
+                             index) or a string (object key) */
 } cl_traversal_step_t;
 
 typedef enum cl_unary_op {
@@ -398,12 +401,55 @@ struct cl_evaluated_body {
     size_t capacity;
 };
 
+/* ---- external bindings: values injected by the host program ---------
+ *
+ * A cl_bindings_t maps top-level names to values built by the C program.
+ * During evaluation a binding is looked up right after "for" variables and
+ * before the document's own top-level attributes/blocks, so it overrides a
+ * same-named top-level attribute everywhere - both where it is referenced
+ * ("x = env") and in the evaluated attribute itself ("env = "dev"" comes out
+ * as the bound value). That lets a document keep defaults that the host
+ * can override. Bindings carry no special names: the host picks them.
+ *
+ * Every cl_value_t below is owned by the cl_bindings_t that created it and
+ * may only be passed to functions of that same cl_bindings_t. Evaluation
+ * copies what it uses into the result, so the bindings can be freed right
+ * after cl_document_evaluate_with() returns. */
+typedef struct cl_bindings cl_bindings_t;
+
+cl_bindings_t *cl_bindings_new(void);
+void cl_bindings_free(cl_bindings_t *bindings);
+
+cl_value_t *cl_bindings_string(cl_bindings_t *bindings, const char *value);
+cl_value_t *cl_bindings_number(cl_bindings_t *bindings, double value);
+cl_value_t *cl_bindings_bool(cl_bindings_t *bindings, int value);
+cl_value_t *cl_bindings_null(cl_bindings_t *bindings);
+cl_value_t *cl_bindings_list(cl_bindings_t *bindings);
+cl_value_t *cl_bindings_object(cl_bindings_t *bindings);
+
+/* Both return 0 on success, -1 on a wrong container kind, a NULL argument,
+ * or when `item`/`value` already contains `list`/`object` (which would
+ * make the value cyclic). cl_bindings_object_set replaces an existing key. */
+int cl_bindings_list_add(cl_bindings_t *bindings, cl_value_t *list, cl_value_t *item);
+int cl_bindings_object_set(cl_bindings_t *bindings, cl_value_t *object, const char *key, cl_value_t *value);
+
+/* Binds `name` to `value`, replacing any previous binding of that name.
+ * Returns 0 on success, -1 on a NULL argument. */
+int cl_bindings_set(cl_bindings_t *bindings, const char *name, cl_value_t *value);
+int cl_bindings_set_string(cl_bindings_t *bindings, const char *name, const char *value);
+int cl_bindings_set_number(cl_bindings_t *bindings, const char *name, double value);
+int cl_bindings_set_bool(cl_bindings_t *bindings, const char *name, int value);
+
 /* Walks doc->root, resolving every expression (including traversals,
  * operators, for-expressions, splats, function calls and templates) into a
  * plain value tree. Never mutates `doc`; the raw AST stays explorable
  * through the Milestone-1 API regardless of whether this was called.
  * Stops at the first error found (eager evaluation). */
 cl_evaluated_t *cl_document_evaluate(cl_document_t *doc, cl_error_t *err);
+
+/* Same as cl_document_evaluate(), with `bindings` (may be NULL) visible to
+ * the document - see cl_bindings_t above. */
+cl_evaluated_t *cl_document_evaluate_with(cl_document_t *doc, const cl_bindings_t *bindings, cl_error_t *err);
 void cl_evaluated_free(cl_evaluated_t *result);
 cl_evaluated_body_t *cl_evaluated_root(cl_evaluated_t *result);
 

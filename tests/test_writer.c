@@ -109,6 +109,40 @@ static void test_postfix_round_trip_needs_defensive_parens(void) {
     }
 }
 
+static void test_dynamic_index_round_trip(void) {
+    static const char *sources[] = {
+        "x = zones[i]\n",
+        "x = grid[row][col + 1]\n",
+        "x = modes[is_open ? \"day\" : \"night\"].humidity\n",
+        "x = zones[length(zones) - 1]\n",
+        "x = sizes[\"${kind}\"]\n",
+        "x = {a = 1}[k]\n",
+        "x = [for z in zones : schedule[z]]\n",
+        "x = list[*].tags[i]\n",
+    };
+
+    for (size_t i = 0; i < sizeof(sources) / sizeof(sources[0]); i++) {
+        cl_error_t err;
+        cl_document_t *doc = cl_load_string(sources[i], "index_round_trip", &err);
+        CL_CHECK(doc != NULL);
+        if (!doc) {
+            continue;
+        }
+
+        char *first = cl_document_to_string(doc);
+        cl_document_t *reparsed = cl_load_string(first, "index_round_trip_2", &err);
+        CL_CHECK(reparsed != NULL);
+        if (reparsed) {
+            char *second = cl_document_to_string(reparsed);
+            CL_CHECK_STREQ(first, second);
+            free(second);
+            cl_document_free(reparsed);
+        }
+        free(first);
+        cl_document_free(doc);
+    }
+}
+
 /* Trim markers are applied destructively at template-compile time (the
  * literal parts stored in the AST are already trimmed, with no leftover
  * "~" to reproduce) - so the writer's output for a trimmed template won't
@@ -148,5 +182,6 @@ void cl_test_run_writer(void) {
     test_simple_round_trip();
     test_postfix_round_trip_needs_defensive_parens();
     test_trim_marker_round_trip_is_stable();
+    test_dynamic_index_round_trip();
     test_fixtures_round_trip();
 }

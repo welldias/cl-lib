@@ -1,6 +1,8 @@
 #include "cl/cl.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 static void print_indent(int indent) {
     for (int i = 0; i < indent; i++) {
@@ -49,6 +51,7 @@ static void dump_traversal(const cl_expr_t *expr) {
             case CL_STEP_INDEX_STRING: printf("[\"%s\"]", step->name); break;
             case CL_STEP_SPLAT_ATTR: printf(".*"); break;
             case CL_STEP_SPLAT_FULL: printf("[*]"); break;
+            case CL_STEP_INDEX_EXPR: printf("[<expr>]"); break;
         }
     }
     printf("\n");
@@ -70,6 +73,7 @@ static void dump_postfix(const cl_expr_t *expr, int indent) {
             case CL_STEP_INDEX_STRING: printf("[\"%s\"]", step->name); break;
             case CL_STEP_SPLAT_ATTR: printf(".*"); break;
             case CL_STEP_SPLAT_FULL: printf("[*]"); break;
+            case CL_STEP_INDEX_EXPR: printf("[<expr>]"); break;
         }
     }
     printf("\n");
@@ -252,7 +256,35 @@ static void try_load_and_dump(const char *path) {
     cl_document_free(doc);
 }
 
-static void try_evaluate(const char *path) {
+/* Builds bindings from "name=value" command-line arguments: "true"/"false"
+ * become bools, anything strtod() consumes entirely becomes a number, and
+ * everything else stays a string. Returns NULL on a malformed argument. */
+static cl_bindings_t *parse_bindings(int count, char **args) {
+    cl_bindings_t *bindings = cl_bindings_new();
+    for (int i = 0; i < count; i++) {
+        char *eq = strchr(args[i], '=');
+        if (!eq || eq == args[i]) {
+            fprintf(stderr, "binding invalido '%s' (esperado nome=valor)\n", args[i]);
+            cl_bindings_free(bindings);
+            return NULL;
+        }
+        *eq = '\0';
+        const char *name = args[i];
+        const char *value = eq + 1;
+        char *end = NULL;
+        double number = strtod(value, &end);
+        if (strcmp(value, "true") == 0 || strcmp(value, "false") == 0) {
+            cl_bindings_set_bool(bindings, name, strcmp(value, "true") == 0);
+        } else if (*value != '\0' && *end == '\0') {
+            cl_bindings_set_number(bindings, name, number);
+        } else {
+            cl_bindings_set_string(bindings, name, value);
+        }
+    }
+    return bindings;
+}
+
+static void try_evaluate(const char *path, const cl_bindings_t *bindings) {
     cl_error_t err;
     printf("== evaluate: %s ==\n", path);
     cl_document_t *doc = cl_load_file(path, &err);
@@ -260,7 +292,7 @@ static void try_evaluate(const char *path) {
         printf("  erro de parse (linha %d, coluna %d): %s\n", err.line, err.col, err.message);
         return;
     }
-    cl_evaluated_t *result = cl_document_evaluate(doc, &err);
+    cl_evaluated_t *result = cl_document_evaluate_with(doc, bindings, &err);
     if (!result) {
         printf("  erro de avaliacao (linha %d, coluna %d): %s\n", err.line, err.col, err.message);
         cl_document_free(doc);
@@ -275,14 +307,19 @@ int main(int argc, char **argv) {
     printf("cllib version %s\n\n", cl_version());
 
     if (argc < 2) {
-        fprintf(stderr, "uso: %s <arquivo.cl>\n", argv[0]);
+        fprintf(stderr, "uso: %s <arquivo.cl> [nome=valor ...]\n", argv[0]);
         return 1;
     }
 
     const char *cl_file = argv[1];
+    cl_bindings_t *bindings = parse_bindings(argc - 2, argv + 2);
+    if (!bindings) {
+        return 1;
+    }
 
     try_load_and_dump(cl_file);
-    try_evaluate(cl_file);
+    try_evaluate(cl_file, bindings);
 
+    cl_bindings_free(bindings);
     return 0;
 }

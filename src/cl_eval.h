@@ -37,6 +37,9 @@ typedef struct cl_eval_ctx {
     cl_error_t *err;
     int failed;
     const cl_eval_resolving_t *resolving;
+    const cl_bindings_t *bindings; /* NULL when evaluating without bindings */
+    cl_value_t **bound_copies;     /* result-arena copy of bindings->items[i].value,
+                                      made on first use; parallel to bindings->items */
 } cl_eval_ctx_t;
 
 void cl_eval_fail(cl_eval_ctx_t *ctx, int line, int col, const char *fmt, ...);

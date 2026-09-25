@@ -23,6 +23,7 @@ void cl_expr_traversal_add_index_number(cl_document_t *doc, cl_expr_t *trav, dou
 void cl_expr_traversal_add_index_string(cl_document_t *doc, cl_expr_t *trav, const char *name);
 void cl_expr_traversal_add_splat_attr(cl_document_t *doc, cl_expr_t *trav);
 void cl_expr_traversal_add_splat_full(cl_document_t *doc, cl_expr_t *trav);
+void cl_expr_traversal_add_index_expr(cl_document_t *doc, cl_expr_t *trav, cl_expr_t *index);
 
 cl_expr_t *cl_expr_new_postfix(cl_document_t *doc, cl_expr_t *base, int line, int col);
 void cl_expr_postfix_add_attr(cl_document_t *doc, cl_expr_t *expr, const char *name);
@@ -30,6 +31,7 @@ void cl_expr_postfix_add_index_number(cl_document_t *doc, cl_expr_t *expr, doubl
 void cl_expr_postfix_add_index_string(cl_document_t *doc, cl_expr_t *expr, const char *name);
 void cl_expr_postfix_add_splat_attr(cl_document_t *doc, cl_expr_t *expr);
 void cl_expr_postfix_add_splat_full(cl_document_t *doc, cl_expr_t *expr);
+void cl_expr_postfix_add_index_expr(cl_document_t *doc, cl_expr_t *expr, cl_expr_t *index);
 
 cl_expr_t *cl_expr_new_tuple(cl_document_t *doc, int line, int col);
 void cl_expr_tuple_add(cl_document_t *doc, cl_expr_t *tuple, cl_expr_t *item);

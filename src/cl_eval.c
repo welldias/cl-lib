@@ -1,5 +1,6 @@
 #include "cl_eval.h"
 
+#include "cl_bindings.h"
 #include "cl_functions.h"
 
 #include <math.h>
@@ -162,6 +163,54 @@ static cl_value_t *cl_scope_lookup(const cl_eval_scope_t *scope, const char *nam
 }
 
 /* ------------------------------------------------------------------ */
+/* External bindings                                                    */
+/* ------------------------------------------------------------------ */
+
+/* Deep-copies a host-built binding value into the result arena, so the
+ * evaluated tree never points into the cl_bindings_t (which the host may
+ * free as soon as evaluation returns). */
+static cl_value_t *cl_val_copy(cl_eval_ctx_t *ctx, const cl_value_t *v) {
+    switch (v->kind) {
+        case CL_VAL_STRING: return cl_val_string(ctx, v->as.string_value);
+        case CL_VAL_NUMBER: return cl_val_number(ctx, v->as.number_value);
+        case CL_VAL_BOOL: return cl_val_bool(ctx, v->as.bool_value);
+        case CL_VAL_NULL: return cl_val_null(ctx);
+        case CL_VAL_LIST: {
+            cl_value_t *list = cl_val_new_list(ctx);
+            for (size_t i = 0; i < v->as.list.count; i++) {
+                cl_val_list_add(ctx, list, cl_val_copy(ctx, v->as.list.items[i]));
+            }
+            return list;
+        }
+        case CL_VAL_OBJECT: {
+            cl_value_t *obj = cl_val_new_object(ctx);
+            for (size_t i = 0; i < v->as.object.count; i++) {
+                cl_val_object_add(ctx, obj, v->as.object.items[i].key, cl_val_copy(ctx, v->as.object.items[i].value));
+            }
+            return obj;
+        }
+    }
+    return NULL;
+}
+
+/* The value the host bound to `name`, copied into the result on first use,
+ * or NULL when there is no such binding. */
+static cl_value_t *cl_eval_binding(cl_eval_ctx_t *ctx, const char *name) {
+    if (!ctx->bindings) {
+        return NULL;
+    }
+    for (size_t i = 0; i < ctx->bindings->count; i++) {
+        if (strcmp(ctx->bindings->items[i].name, name) == 0) {
+            if (!ctx->bound_copies[i]) {
+                ctx->bound_copies[i] = cl_val_copy(ctx, ctx->bindings->items[i].value);
+            }
+            return ctx->bound_copies[i];
+        }
+    }
+    return NULL;
+}
+
+/* ------------------------------------------------------------------ */
 /* Core expression evaluator                                            */
 /* ------------------------------------------------------------------ */
 
@@ -183,8 +232,39 @@ static cl_value_t *cl_eval_body_as_object(cl_eval_ctx_t *ctx, const cl_body_t *b
     return obj;
 }
 
-static cl_value_t *cl_eval_apply_step(cl_eval_ctx_t *ctx, cl_value_t *current, const cl_traversal_step_t *step,
-                                       int line, int col) {
+static cl_value_t *cl_eval_index_list(cl_eval_ctx_t *ctx, cl_value_t *current, double index, int line, int col) {
+    if (current->kind != CL_VAL_LIST) {
+        cl_eval_fail(ctx, line, col, "nao e possivel indexar: valor nao e uma lista");
+        return NULL;
+    }
+    if (index != floor(index)) {
+        cl_eval_fail(ctx, line, col, "indice %g deve ser inteiro", index);
+        return NULL;
+    }
+    if (index < 0 || index >= (double)current->as.list.count) {
+        cl_eval_fail(ctx, line, col, "indice %g fora dos limites (lista com %zu itens)", index,
+                     current->as.list.count);
+        return NULL;
+    }
+    return current->as.list.items[(size_t)index];
+}
+
+static cl_value_t *cl_eval_index_object(cl_eval_ctx_t *ctx, cl_value_t *current, const char *key, int line,
+                                        int col) {
+    if (current->kind != CL_VAL_OBJECT) {
+        cl_eval_fail(ctx, line, col, "nao e possivel acessar '[\"%s\"]': valor nao e um objeto", key);
+        return NULL;
+    }
+    cl_value_t *v = cl_value_object_get(current, key);
+    if (!v) {
+        cl_eval_fail(ctx, line, col, "chave '%s' nao encontrada", key);
+        return NULL;
+    }
+    return v;
+}
+
+static cl_value_t *cl_eval_apply_step(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scope, cl_value_t *current,
+                                       const cl_traversal_step_t *step, int line, int col) {
     switch (step->kind) {
         case CL_STEP_ATTR: {
             if (current->kind != CL_VAL_OBJECT) {
@@ -198,30 +278,26 @@ static cl_value_t *cl_eval_apply_step(cl_eval_ctx_t *ctx, cl_value_t *current, c
             }
             return v;
         }
-        case CL_STEP_INDEX_NUMBER: {
-            if (current->kind != CL_VAL_LIST) {
-                cl_eval_fail(ctx, line, col, "nao e possivel indexar: valor nao e uma lista");
+        case CL_STEP_INDEX_NUMBER:
+            return cl_eval_index_list(ctx, current, step->index, line, col);
+        case CL_STEP_INDEX_STRING:
+            return cl_eval_index_object(ctx, current, step->name, line, col);
+        case CL_STEP_INDEX_EXPR: {
+            /* Evaluated in the caller's scope, so a for-variable works as an
+             * index ("zones[i]"); the kind of the resulting value, not the
+             * syntax, picks list indexing vs. object key lookup. */
+            cl_value_t *key = cl_eval_expr(ctx, scope, step->expr);
+            if (ctx->failed) {
                 return NULL;
             }
-            long idx = (long)step->index;
-            if (idx < 0 || (size_t)idx >= current->as.list.count) {
-                cl_eval_fail(ctx, line, col, "indice %ld fora dos limites", idx);
-                return NULL;
+            if (key->kind == CL_VAL_NUMBER) {
+                return cl_eval_index_list(ctx, current, key->as.number_value, step->expr->line, step->expr->col);
             }
-            return current->as.list.items[idx];
-        }
-        case CL_STEP_INDEX_STRING: {
-            if (current->kind != CL_VAL_OBJECT) {
-                cl_eval_fail(ctx, line, col, "nao e possivel acessar '[\"%s\"]': valor nao e um objeto",
-                             step->name);
-                return NULL;
+            if (key->kind == CL_VAL_STRING) {
+                return cl_eval_index_object(ctx, current, key->as.string_value, step->expr->line, step->expr->col);
             }
-            cl_value_t *v = cl_value_object_get(current, step->name);
-            if (!v) {
-                cl_eval_fail(ctx, line, col, "chave '%s' nao encontrada", step->name);
-                return NULL;
-            }
-            return v;
+            cl_eval_fail(ctx, step->expr->line, step->expr->col, "indice deve ser numero ou string");
+            return NULL;
         }
         case CL_STEP_SPLAT_ATTR:
         case CL_STEP_SPLAT_FULL:
@@ -233,8 +309,9 @@ static cl_value_t *cl_eval_apply_step(cl_eval_ctx_t *ctx, cl_value_t *current, c
 
 /* Shared tail end of both CL_EXPR_TRAVERSAL and CL_EXPR_POSTFIX: applies
  * steps[start_idx..step_count) to an already-resolved base value. */
-static cl_value_t *cl_eval_apply_steps(cl_eval_ctx_t *ctx, cl_value_t *current, const cl_traversal_step_t *steps,
-                                        size_t step_count, size_t start_idx, int line, int col) {
+static cl_value_t *cl_eval_apply_steps(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scope, cl_value_t *current,
+                                        const cl_traversal_step_t *steps, size_t step_count, size_t start_idx,
+                                        int line, int col) {
     for (size_t idx = start_idx; idx < step_count; idx++) {
         const cl_traversal_step_t *step = &steps[idx];
         if (step->kind == CL_STEP_SPLAT_ATTR || step->kind == CL_STEP_SPLAT_FULL) {
@@ -248,7 +325,7 @@ static cl_value_t *cl_eval_apply_steps(cl_eval_ctx_t *ctx, cl_value_t *current, 
             for (size_t e = 0; e < list_val->as.list.count; e++) {
                 cl_value_t *elem = list_val->as.list.items[e];
                 for (size_t j = idx + 1; j < step_count; j++) {
-                    elem = cl_eval_apply_step(ctx, elem, &steps[j], line, col);
+                    elem = cl_eval_apply_step(ctx, scope, elem, &steps[j], line, col);
                     if (ctx->failed) {
                         return NULL;
                     }
@@ -257,7 +334,7 @@ static cl_value_t *cl_eval_apply_steps(cl_eval_ctx_t *ctx, cl_value_t *current, 
             }
             return result;
         }
-        current = cl_eval_apply_step(ctx, current, step, line, col);
+        current = cl_eval_apply_step(ctx, scope, current, step, line, col);
         if (ctx->failed) {
             return NULL;
         }
@@ -346,8 +423,11 @@ static cl_value_t *cl_eval_traversal(cl_eval_ctx_t *ctx, const cl_eval_scope_t *
     cl_value_t *current;
 
     cl_value_t *local = cl_scope_lookup(scope, root_name);
+    cl_value_t *bound = local ? NULL : cl_eval_binding(ctx, root_name);
     if (local) {
         current = local;
+    } else if (bound) {
+        current = bound;
     } else {
         cl_attribute_t *attr = cl_body_get_attribute(ctx->root_scope, root_name);
         if (attr) {
@@ -391,7 +471,7 @@ static cl_value_t *cl_eval_traversal(cl_eval_ctx_t *ctx, const cl_eval_scope_t *
         }
     }
 
-    return cl_eval_apply_steps(ctx, current, steps, step_count, idx, expr->line, expr->col);
+    return cl_eval_apply_steps(ctx, scope, current, steps, step_count, idx, expr->line, expr->col);
 }
 
 static cl_value_t *cl_eval_postfix(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scope, const cl_expr_t *expr) {
@@ -399,7 +479,8 @@ static cl_value_t *cl_eval_postfix(cl_eval_ctx_t *ctx, const cl_eval_scope_t *sc
     if (ctx->failed) {
         return NULL;
     }
-    return cl_eval_apply_steps(ctx, base, expr->as.postfix.steps, expr->as.postfix.count, 0, expr->line, expr->col);
+    return cl_eval_apply_steps(ctx, scope, base, expr->as.postfix.steps, expr->as.postfix.count, 0, expr->line,
+                               expr->col);
 }
 
 static int cl_eval_render_template_into(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scope, const cl_template_t *tpl,
@@ -824,7 +905,9 @@ static cl_value_t *cl_eval_expr(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scope
 /* Evaluated-tree construction                                          */
 /* ------------------------------------------------------------------ */
 
-static cl_evaluated_body_t *cl_eval_build_body(cl_eval_ctx_t *ctx, const cl_body_t *body) {
+/* `top_level` is true only for the document root, the one body whose
+ * attributes a binding of the same name overrides. */
+static cl_evaluated_body_t *cl_eval_build_body(cl_eval_ctx_t *ctx, const cl_body_t *body, int top_level) {
     cl_evaluated_body_t *out = cl_arena_alloc_raw(&ctx->result->arena, sizeof(cl_evaluated_body_t));
     out->items = NULL;
     out->count = 0;
@@ -840,7 +923,10 @@ static cl_evaluated_body_t *cl_eval_build_body(cl_eval_ctx_t *ctx, const cl_body
         cl_evaluated_item_t *out_item = &out->items[out->count++];
 
         if (item->kind == CL_ITEM_ATTRIBUTE) {
-            cl_value_t *v = cl_eval_expr(ctx, NULL, item->as.attribute->value);
+            cl_value_t *v = top_level ? cl_eval_binding(ctx, item->as.attribute->name) : NULL;
+            if (!v) {
+                v = cl_eval_expr(ctx, NULL, item->as.attribute->value);
+            }
             if (ctx->failed) {
                 return NULL;
             }
@@ -861,7 +947,7 @@ static cl_evaluated_body_t *cl_eval_build_body(cl_eval_ctx_t *ctx, const cl_body
                     eb->labels[l] = cl_arena_strdup_raw(&ctx->result->arena, block->labels[l]);
                 }
             }
-            eb->body = cl_eval_build_body(ctx, block->body);
+            eb->body = cl_eval_build_body(ctx, block->body, 0);
             if (ctx->failed) {
                 return NULL;
             }
@@ -873,6 +959,10 @@ static cl_evaluated_body_t *cl_eval_build_body(cl_eval_ctx_t *ctx, const cl_body
 }
 
 cl_evaluated_t *cl_document_evaluate(cl_document_t *doc, cl_error_t *err) {
+    return cl_document_evaluate_with(doc, NULL, err);
+}
+
+cl_evaluated_t *cl_document_evaluate_with(cl_document_t *doc, const cl_bindings_t *bindings, cl_error_t *err) {
     cl_evaluated_t *result = calloc(1, sizeof(cl_evaluated_t));
     if (!result) {
         abort();
@@ -884,8 +974,12 @@ cl_evaluated_t *cl_document_evaluate(cl_document_t *doc, cl_error_t *err) {
     ctx.result = result;
     ctx.err = err;
     ctx.failed = 0;
+    if (bindings && bindings->count > 0) {
+        ctx.bindings = bindings;
+        ctx.bound_copies = cl_arena_alloc_raw(&result->arena, bindings->count * sizeof(cl_value_t *));
+    }
 
-    result->root = cl_eval_build_body(&ctx, doc->root);
+    result->root = cl_eval_build_body(&ctx, doc->root, 1);
 
     if (ctx.failed) {
         cl_evaluated_free(result);

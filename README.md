@@ -56,8 +56,8 @@ cmake --build build-asan
 ctest --test-dir build
 ```
 
-This runs the `cl_tests` suite (in `tests/`) as 5 named CTest cases:
-`parser`, `eval`, `navigate`, `writer`, and `fixtures`.
+This runs the `cl_tests` suite (in `tests/`) as 6 named CTest cases:
+`parser`, `eval`, `navigate`, `writer`, `fixtures`, and `bindings`.
 
 ## Quick start
 
@@ -221,6 +221,79 @@ Only a bare-identifier root (`a.b.c`) goes through the named-lookup
 algorithm above; chaining onto anything else just evaluates that base
 expression first and then applies the same steps to the resulting value.
 
+## Dynamic indexing
+
+`[...]` accepts any expression, not just a literal. The expression is
+evaluated first (in the current scope, so `for` variables work), and the
+kind of the resulting value decides what happens: a **number** indexes a
+list (it must be a whole number within bounds), a **string** looks up an
+object key, and anything else is an evaluation error.
+
+```hcl
+current_zone = zones[current]
+size         = sizes[kind]
+humidity     = modes[is_open ? "day" : "night"].humidity
+last_zone    = zones[length(zones) - 1]
+cell         = grid[row][col]
+times        = [for z in zones : schedule[z]]
+weight       = { small = 1, big = 2 }[kind]
+```
+
+A dynamic index never doubles as a block label: `plant.fern.sunlight`
+reaches `plant "fern" {}`, but `plant[name].sunlight` does not, even when
+`name` is `"fern"` — only `.label` steps take part in the block lookup
+described above.
+
+## External bindings
+
+The host program can inject values into evaluation with a `cl_bindings_t`
+and `cl_document_evaluate_with()`. The names are whatever the program
+chooses; none of them is special to the library.
+
+```hcl
+# deploy.cl - "env", "replicas" and "build_id" come from the host program
+service "api" {
+  name     = "api-${env}"
+  replicas = replicas
+  image    = "registry.local/api:${build_id}"
+}
+```
+
+```c
+cl_bindings_t *b = cl_bindings_new();
+cl_bindings_set_string(b, "env", "prod");
+cl_bindings_set_number(b, "replicas", 6);
+cl_bindings_set_string(b, "build_id", "a1b2c3");
+
+cl_value_t *ips = cl_bindings_list(b);             /* lists and objects too */
+cl_bindings_list_add(b, ips, cl_bindings_string(b, "10.0.0.1"));
+cl_bindings_set(b, "ips", ips);
+
+cl_evaluated_t *result = cl_document_evaluate_with(doc, b, &err);
+cl_bindings_free(b);   /* safe: the result holds its own copies */
+```
+
+- **Lookup order**: `for` variables, then bindings, then top-level
+  attributes, then labeled blocks.
+- **Overriding defaults**: a binding replaces a same-named *top-level*
+  attribute everywhere - where it is referenced and in the evaluated
+  attribute itself. With `env = "dev"` in the file, evaluating without
+  bindings yields `"dev"`; binding `env` to `"prod"` yields `"prod"`, and
+  the file's own expression for `env` is not evaluated at all. Attributes
+  nested inside blocks are never overridden.
+- **Unbound names**: a document that references a name nobody defines
+  fails with the usual "reference not found" error.
+- **Ownership**: every `cl_value_t` built with `cl_bindings_*` belongs to
+  that `cl_bindings_t`; adding a container into something it already
+  contains is refused (`-1`), so bound values can't be cyclic.
+
+`cl_tool` accepts bindings as `name=value` arguments (`true`/`false` become
+bools, numeric text becomes a number, anything else a string):
+
+```sh
+./build/example/cl_tool deploy.cl env=prod replicas=6 build_id=a1b2c3
+```
+
 ## Built-in functions
 
 | Function            | Behavior                                                                 |
@@ -234,12 +307,10 @@ Calling an unregistered function is an evaluation error, not a parse error.
 
 ## Known limitations
 
-- No external bindings yet: evaluation only ever sees the content of the
-  loaded document itself, with no way to inject values from the host
-  program.
-- `[index]` only accepts a literal string or number, never an arbitrary
-  expression — there's no dynamic-key indexing like `list[i]` for a
-  variable `i`.
+- The host can inject values but not functions: only the built-ins above
+  are callable.
+- Template trim markers (`~`) don't survive serialization as `~`: the
+  writer emits the already-trimmed text, which reparses to the same result.
 
 ## Project layout
 
@@ -248,7 +319,7 @@ include/cl/cl.h   the entire public API
 src/               implementation, one concern per file (lexer, parser,
                    evaluator, navigation, mutation, writer, ...)
 example/           cl_example (dumps every cl/*.cl fixture) and
-                   cl_tool <file.cl> (dumps one file you pass in)
+                   cl_tool <file.cl> [name=value ...] (dumps one file you pass in)
 tests/             the CTest suite
 cl/                .cl fixture files used by the examples and tests
 ```

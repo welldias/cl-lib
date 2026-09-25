@@ -232,6 +232,56 @@ static void test_postfix_chaining_on_non_identifier_bases(void) {
     }
 }
 
+/* Inside "[...]", a lone number/string literal keeps its literal step kind
+ * (so existing documents parse to the exact same AST); anything else becomes
+ * a CL_STEP_INDEX_EXPR holding the parsed expression. */
+static void test_index_step_kinds(void) {
+    cl_error_t err;
+    cl_document_t *doc = cl_load_string("x = a[0][\"k\"][i][n + 1][\"${k}\"]\ny = f(v)[i]\n", "index_kinds", &err);
+    CL_CHECK(doc != NULL);
+    if (!doc) {
+        return;
+    }
+
+    cl_attribute_t *x = cl_body_get_attribute(cl_document_root(doc), "x");
+    CL_CHECK(x != NULL && cl_expr_kind(x->value) == CL_EXPR_TRAVERSAL);
+    if (x && cl_expr_traversal_step_count(x->value) == 5) {
+        const cl_traversal_step_t *s0 = cl_expr_traversal_step_at(x->value, 0);
+        CL_CHECK(s0->kind == CL_STEP_INDEX_NUMBER && s0->index == 0 && s0->expr == NULL);
+
+        const cl_traversal_step_t *s1 = cl_expr_traversal_step_at(x->value, 1);
+        CL_CHECK(s1->kind == CL_STEP_INDEX_STRING);
+        CL_CHECK_STREQ(s1->name, "k");
+
+        const cl_traversal_step_t *s2 = cl_expr_traversal_step_at(x->value, 2);
+        CL_CHECK(s2->kind == CL_STEP_INDEX_EXPR && cl_expr_kind(s2->expr) == CL_EXPR_TRAVERSAL);
+
+        const cl_traversal_step_t *s3 = cl_expr_traversal_step_at(x->value, 3);
+        CL_CHECK(s3->kind == CL_STEP_INDEX_EXPR && cl_expr_kind(s3->expr) == CL_EXPR_BINARY);
+
+        const cl_traversal_step_t *s4 = cl_expr_traversal_step_at(x->value, 4);
+        CL_CHECK(s4->kind == CL_STEP_INDEX_EXPR && cl_expr_kind(s4->expr) == CL_EXPR_TEMPLATE);
+    } else {
+        CL_CHECK(x && cl_expr_traversal_step_count(x->value) == 5);
+    }
+
+    cl_attribute_t *y = cl_body_get_attribute(cl_document_root(doc), "y");
+    CL_CHECK(y != NULL && cl_expr_kind(y->value) == CL_EXPR_POSTFIX);
+    if (y && cl_expr_postfix_step_count(y->value) == 1) {
+        CL_CHECK(cl_expr_postfix_step_at(y->value, 0)->kind == CL_STEP_INDEX_EXPR);
+    }
+
+    cl_document_free(doc);
+
+    cl_document_t *bad = cl_load_string("x = a[i\n", "index_unclosed", &err);
+    CL_CHECK(bad == NULL);
+    if (!bad) {
+        CL_CHECK(strstr(err.message, "']'") != NULL);
+    } else {
+        cl_document_free(bad);
+    }
+}
+
 void cl_test_run_parser(void) {
     test_attribute_vs_block();
     test_operator_precedence();
@@ -241,4 +291,5 @@ void cl_test_run_parser(void) {
     test_postfix_chaining_on_non_identifier_bases();
     test_heredoc_without_interpolation_is_plain_string();
     test_conditional_and_for_expression_kinds();
+    test_index_step_kinds();
 }

@@ -10,6 +10,7 @@ set(CL_SOURCES
     cl_writer.c
     cl_eval.c
     cl_functions.c
+    cl_bindings.c
 )
 
 option(CL_BUILD_STATIC "Build the static cl library (libcl.a)" ON)

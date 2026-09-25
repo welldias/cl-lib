@@ -49,6 +49,7 @@ static void dump_traversal(const cl_expr_t *expr) {
             case CL_STEP_INDEX_STRING: printf("[\"%s\"]", step->name); break;
             case CL_STEP_SPLAT_ATTR: printf(".*"); break;
             case CL_STEP_SPLAT_FULL: printf("[*]"); break;
+            case CL_STEP_INDEX_EXPR: printf("[<expr>]"); break;
         }
     }
     printf("\n");
@@ -70,6 +71,7 @@ static void dump_postfix(const cl_expr_t *expr, int indent) {
             case CL_STEP_INDEX_STRING: printf("[\"%s\"]", step->name); break;
             case CL_STEP_SPLAT_ATTR: printf(".*"); break;
             case CL_STEP_SPLAT_FULL: printf("[*]"); break;
+            case CL_STEP_INDEX_EXPR: printf("[<expr>]"); break;
         }
     }
     printf("\n");

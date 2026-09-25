@@ -119,7 +119,7 @@ static void cl_write_object(cl_buf_t *buf, const cl_expr_t *expr, int indent) {
     cl_buf_append_char(buf, '}');
 }
 
-static void cl_write_steps(cl_buf_t *buf, const cl_traversal_step_t *steps, size_t count) {
+static void cl_write_steps(cl_buf_t *buf, const cl_traversal_step_t *steps, size_t count, int indent) {
     for (size_t i = 0; i < count; i++) {
         const cl_traversal_step_t *step = &steps[i];
         switch (step->kind) {
@@ -143,13 +143,18 @@ static void cl_write_steps(cl_buf_t *buf, const cl_traversal_step_t *steps, size
             case CL_STEP_SPLAT_FULL:
                 cl_buf_append(buf, "[*]");
                 break;
+            case CL_STEP_INDEX_EXPR:
+                cl_buf_append_char(buf, '[');
+                cl_write_expr(buf, step->expr, indent);
+                cl_buf_append_char(buf, ']');
+                break;
         }
     }
 }
 
-static void cl_write_traversal(cl_buf_t *buf, const cl_expr_t *expr) {
+static void cl_write_traversal(cl_buf_t *buf, const cl_expr_t *expr, int indent) {
     cl_buf_append(buf, expr->as.traversal.root);
-    cl_write_steps(buf, expr->as.traversal.steps, expr->as.traversal.count);
+    cl_write_steps(buf, expr->as.traversal.steps, expr->as.traversal.count, indent);
 }
 
 /* Unlike cl_write_operand() (used for binary/conditional operands, where
@@ -168,7 +173,7 @@ static void cl_write_postfix(cl_buf_t *buf, const cl_expr_t *expr, int indent) {
     if (needs_paren) {
         cl_buf_append_char(buf, ')');
     }
-    cl_write_steps(buf, expr->as.postfix.steps, expr->as.postfix.count);
+    cl_write_steps(buf, expr->as.postfix.steps, expr->as.postfix.count, indent);
 }
 
 static void cl_write_tuple(cl_buf_t *buf, const cl_expr_t *expr, int indent) {
@@ -331,7 +336,7 @@ static void cl_write_expr(cl_buf_t *buf, const cl_expr_t *expr, int indent) {
         case CL_EXPR_BOOL: cl_buf_append(buf, expr->as.bool_value ? "true" : "false"); break;
         case CL_EXPR_NULL: cl_buf_append(buf, "null"); break;
         case CL_EXPR_OBJECT: cl_write_object(buf, expr, indent); break;
-        case CL_EXPR_TRAVERSAL: cl_write_traversal(buf, expr); break;
+        case CL_EXPR_TRAVERSAL: cl_write_traversal(buf, expr, indent); break;
         case CL_EXPR_POSTFIX: cl_write_postfix(buf, expr, indent); break;
         case CL_EXPR_TUPLE: cl_write_tuple(buf, expr, indent); break;
         case CL_EXPR_TEMPLATE:

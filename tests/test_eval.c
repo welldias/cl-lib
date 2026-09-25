@@ -409,6 +409,130 @@ static void test_template_without_trim_markers_keeps_whitespace(void) {
     cl_document_free(doc);
 }
 
+/* Evaluates `source` and checks that its attribute "x" rendered as a string
+ * (numbers via cl_value_as_number) equals `expected`. */
+static void check_eval_x(const char *source, const char *expected) {
+    cl_error_t err;
+    cl_document_t *doc = cl_load_string(source, "check_eval_x", &err);
+    CL_CHECK(doc != NULL);
+    if (!doc) {
+        fprintf(stderr, "  source: %s  parse error: %s\n", source, err.message);
+        return;
+    }
+    cl_evaluated_t *result = cl_document_evaluate(doc, &err);
+    CL_CHECK(result != NULL);
+    if (!result) {
+        fprintf(stderr, "  source: %s  eval error: %s\n", source, err.message);
+        cl_document_free(doc);
+        return;
+    }
+    cl_evaluated_attribute_t *x = cl_evaluated_body_get_attribute(cl_evaluated_root(result), "x");
+    CL_CHECK(x != NULL);
+    if (x) {
+        char actual[64] = "";
+        double num;
+        if (cl_value_as_number(x->value, &num) == 0) {
+            snprintf(actual, sizeof(actual), "%g", num);
+        } else if (cl_value_as_string(x->value)) {
+            snprintf(actual, sizeof(actual), "%s", cl_value_as_string(x->value));
+        }
+        CL_CHECK_STREQ(actual, expected);
+    }
+    cl_evaluated_free(result);
+    cl_document_free(doc);
+}
+
+/* Evaluates `source` and checks that it fails with a message containing
+ * `fragment`. */
+static void check_eval_error(const char *source, const char *fragment) {
+    cl_error_t err;
+    cl_document_t *doc = cl_load_string(source, "check_eval_error", &err);
+    CL_CHECK(doc != NULL);
+    if (!doc) {
+        return;
+    }
+    cl_evaluated_t *result = cl_document_evaluate(doc, &err);
+    CL_CHECK(result == NULL);
+    if (!result) {
+        CL_CHECK(strstr(err.message, fragment) != NULL);
+        if (!strstr(err.message, fragment)) {
+            fprintf(stderr, "  source: %s  got: %s\n", source, err.message);
+        }
+    } else {
+        cl_evaluated_free(result);
+    }
+    cl_document_free(doc);
+}
+
+/* "[expr]" evaluates its expression in the caller's scope and indexes by
+ * the resulting value's kind: number -> list index, string -> object key. */
+static void test_dynamic_index_evaluates(void) {
+    static const char *prelude =
+        "zones = [\"seedling\", \"bloom\", \"harvest\"]\n"
+        "sizes = { small = 1, big = 9 }\n"
+        "modes = { day = { humidity = 55 }, night = { humidity = 70 } }\n"
+        "grid = [[1, 2, 3], [4, 5, 6]]\n"
+        "current = 1\n"
+        "kind = \"big\"\n"
+        "is_open = true\n";
+    static const struct {
+        const char *expr;
+        const char *expected;
+    } cases[] = {
+        {"zones[current]", "bloom"},
+        {"sizes[kind]", "9"},
+        {"modes[is_open ? \"day\" : \"night\"].humidity", "55"},
+        {"zones[length(zones) - 1]", "harvest"},
+        {"grid[current][current + 1]", "6"},
+        {"sizes[\"${kind}\"]", "9"},
+        {"{ small = 1, big = 2 }[kind]", "2"},
+        {"[for i, z in zones : zones[(i + 1) % length(zones)]][2]", "seedling"},
+        {"[for z in [\"big\", \"small\"] : sizes[z]][1]", "1"},
+        {"[for i, row in grid : row[*]][current][0]", "4"},
+        {"([{ v = [7, 8] }, { v = [9, 10] }][*].v[current])[1]", "10"},
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        char source[512];
+        snprintf(source, sizeof(source), "%sx = %s\n", prelude, cases[i].expr);
+        check_eval_x(source, cases[i].expected);
+    }
+}
+
+static void test_dynamic_index_errors(void) {
+    static const char *prelude =
+        "zones = [\"a\", \"b\", \"c\"]\n"
+        "sizes = { big = 9 }\n"
+        "p = \"fern\"\n"
+        "plant \"fern\" {\n  sunlight = \"indirect\"\n}\n";
+    static const struct {
+        const char *expr;
+        const char *fragment;
+    } cases[] = {
+        {"zones[1.5]", "deve ser inteiro"},
+        {"zones[0.5 + 1]", "deve ser inteiro"},
+        {"zones[10]", "fora dos limites"},
+        {"zones[0 - 1]", "fora dos limites"},
+        {"zones[true]", "numero ou string"},
+        {"zones[null]", "numero ou string"},
+        {"sizes[zones[0]]", "chave 'a' nao encontrada"},
+        {"zones[p]", "nao e um objeto"},
+        {"sizes[0 + 0]", "nao e uma lista"},
+        {"zones[missing]", "referencia 'missing' nao encontrada"},
+        /* a dynamic index never doubles as a block label (only ".label"
+         * steps do), so this can't reach plant "fern" */
+        {"plant[p].sunlight", "referencia 'plant' nao encontrada"},
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        char source[512];
+        snprintf(source, sizeof(source), "%sx = %s\n", prelude, cases[i].expr);
+        check_eval_error(source, cases[i].fragment);
+    }
+
+    check_eval_error("zones = [1, 2]\na = zones[a]\nx = a\n", "circular");
+}
+
 void cl_test_run_eval(void) {
     test_attribute_form_resolves_traversal();
     test_unlabeled_block_form_does_not_resolve_traversal();
@@ -422,4 +546,6 @@ void cl_test_run_eval(void) {
     test_diamond_reference_is_not_circular();
     test_template_trim_markers();
     test_template_without_trim_markers_keeps_whitespace();
+    test_dynamic_index_evaluates();
+    test_dynamic_index_errors();
 }

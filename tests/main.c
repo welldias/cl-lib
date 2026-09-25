@@ -7,6 +7,7 @@ void cl_test_run_eval(void);
 void cl_test_run_navigate(void);
 void cl_test_run_writer(void);
 void cl_test_run_fixtures(void);
+void cl_test_run_bindings(void);
 
 int main(int argc, char **argv) {
     const char *group = argc > 1 ? argv[1] : NULL;
@@ -25,6 +26,9 @@ int main(int argc, char **argv) {
     }
     if (!group || strcmp(group, "fixtures") == 0) {
         cl_test_run_fixtures();
+    }
+    if (!group || strcmp(group, "bindings") == 0) {
+        cl_test_run_bindings();
     }
 
     if (cl_test_failures > 0) {
