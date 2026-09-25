@@ -329,7 +329,7 @@ cl_bindings_free(b);   /* safe: the result holds its own copies */
 bools, numeric text becomes a number, anything else a string):
 
 ```sh
-./build/example/cl_tool deploy.cl env=prod replicas=6 build_id=a1b2c3
+./build/bin/cl_tool deploy.cl env=prod replicas=6 build_id=a1b2c3
 ```
 
 ## Block schemas
@@ -407,7 +407,7 @@ Rules:
 `cl_tool` validates when given a schema file:
 
 ```sh
-./build/example/cl_tool cl/schema/machine.cl --schema=cl/schema/machine.schema.cl
+./build/bin/cl_tool cl/schema/machine.cl --schema=cl/schema/machine.schema.cl
 ```
 
 ## Reading values
@@ -595,10 +595,10 @@ result, so the output can be piped into other tools. Errors go to stderr
 with exit status 1.
 
 ```sh
-./build/example/cl_tool app.cl --json                   # whole document as JSON
-./build/example/cl_tool app.cl --get=server.web.port    # 80
-./build/example/cl_tool app.cl --get=server.web         # the block, in cl syntax
-./build/example/cl_tool app.cl --get=server.web --json  # the block as JSON
+./build/bin/cl_tool app.cl --json                   # whole document as JSON
+./build/bin/cl_tool app.cl --get=server.web.port    # 80
+./build/bin/cl_tool app.cl --get=server.web         # the block, in cl syntax
+./build/bin/cl_tool app.cl --get=server.web --json  # the block as JSON
 ```
 
 ## Built-in functions

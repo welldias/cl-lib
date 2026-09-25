@@ -36,7 +36,13 @@ if(CL_BUILD_STATIC)
     if(CL_MATH_LIBRARY)
         target_link_libraries(cl_static PRIVATE ${CL_MATH_LIBRARY})
     endif()
-    set_target_properties(cl_static PROPERTIES OUTPUT_NAME cl)
+    # On Windows the DLL's import library is also cl.lib, so the static one
+    # needs a distinct name to avoid clobbering it.
+    if(WIN32)
+        set_target_properties(cl_static PROPERTIES OUTPUT_NAME cl_static)
+    else()
+        set_target_properties(cl_static PROPERTIES OUTPUT_NAME cl)
+    endif()
 endif()
 
 if(CL_BUILD_SHARED)
@@ -46,7 +52,12 @@ if(CL_BUILD_SHARED)
     if(CL_MATH_LIBRARY)
         target_link_libraries(cl_shared PRIVATE ${CL_MATH_LIBRARY})
     endif()
-    set_target_properties(cl_shared PROPERTIES OUTPUT_NAME cl)
+    # The public header has no dllexport annotations; export everything so
+    # MSVC produces an import library for the DLL.
+    set_target_properties(cl_shared PROPERTIES
+        OUTPUT_NAME cl
+        WINDOWS_EXPORT_ALL_SYMBOLS ON
+    )
 endif()
 
 # `cl` is the default target other parts of the build (e.g. the example) link
