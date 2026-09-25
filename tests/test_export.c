@@ -102,6 +102,8 @@ static void test_special_values(void) {
     cl_bindings_set_number(b, "pos_inf", HUGE_VAL);
     cl_bindings_set_number(b, "neg_inf", -HUGE_VAL);
     volatile double zero = 0.0;
+    /* 0/0 is the intended NaN; volatile keeps the compiler from folding it. */
+    /* cppcheck-suppress duplicateExpression */
     cl_bindings_set_number(b, "nan", zero / zero);
     cl_evaluated_t *result = eval_source("ctrl = \"\"\npos_inf = 0\nneg_inf = 0\nnan = 0\n", b);
     cl_bindings_free(b);

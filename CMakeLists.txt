@@ -43,6 +43,33 @@ if(CL_ENABLE_SANITIZERS)
     endif()
 endif()
 
+# Static analysis: `cmake --build <dir> --target cppcheck`. Settings live in
+# cl.cppcheck; only options the project file cannot hold are passed here.
+find_program(CL_CPPCHECK_EXECUTABLE cppcheck)
+
+if(CL_CPPCHECK_EXECUTABLE)
+    include(ProcessorCount)
+    ProcessorCount(CL_CPPCHECK_JOBS)
+    if(CL_CPPCHECK_JOBS EQUAL 0)
+        set(CL_CPPCHECK_JOBS 1)
+    endif()
+
+    add_custom_target(cppcheck
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/build/cppcheck
+        COMMAND ${CL_CPPCHECK_EXECUTABLE}
+            --project=${CMAKE_SOURCE_DIR}/cl.cppcheck
+            --std=c99
+            --enable=warning,style,performance,portability,information
+            --inline-suppr
+            --error-exitcode=1
+            -j${CL_CPPCHECK_JOBS}
+            -q
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Running cppcheck"
+        VERBATIM
+    )
+endif()
+
 add_subdirectory(src)
 
 if(CL_BUILD_EXAMPLES)

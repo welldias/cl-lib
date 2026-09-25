@@ -179,7 +179,9 @@ static void test_postfix_chaining_on_non_identifier_bases(void) {
             CL_CHECK(cl_expr_postfix_step_count(attr->value) == 1);
             const cl_traversal_step_t *step = cl_expr_postfix_step_at(attr->value, 0);
             CL_CHECK(step != NULL && step->kind == CL_STEP_ATTR);
-            CL_CHECK_STREQ(step->name, "len");
+            if (step) {
+                CL_CHECK_STREQ(step->name, "len");
+            }
         }
         cl_document_free(call_doc);
     }

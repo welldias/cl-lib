@@ -234,9 +234,8 @@ static int cl_lex_heredoc(cl_lexer_t *lx, cl_error_t *err) {
     size_t line_count = 0;
     size_t line_capacity = 0;
     size_t closing_indent = 0;
-    int closed = 0;
 
-    while (!closed) {
+    for (;;) {
         if (cl_peek(lx, 0) == '\0') {
             for (size_t i = 0; i < line_count; i++) {
                 free(lines[i]);
@@ -265,7 +264,6 @@ static int cl_lex_heredoc(cl_lexer_t *lx, cl_error_t *err) {
         size_t rest_len = line_len - leading;
         if (rest_len == marker_len && memcmp(lx->src + line_start + leading, marker, marker_len) == 0) {
             closing_indent = leading;
-            closed = 1;
             break;
         }
 
