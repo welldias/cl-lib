@@ -1,17 +1,10 @@
-#include "cl_internal.h"
+#include "cl_writer.h"
 
 #include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-/* Plain, non-arena growable buffer: owned by the caller of
- * cl_document_to_string(), released with free(). */
-typedef struct {
-    char *data;
-    size_t len;
-    size_t capacity;
-} cl_buf_t;
 
 static void cl_buf_reserve(cl_buf_t *buf, size_t extra) {
     if (buf->len + extra + 1 <= buf->capacity) {
@@ -29,7 +22,7 @@ static void cl_buf_reserve(cl_buf_t *buf, size_t extra) {
     buf->capacity = new_capacity;
 }
 
-static void cl_buf_append(cl_buf_t *buf, const char *s) {
+void cl_buf_append(cl_buf_t *buf, const char *s) {
     size_t n = strlen(s);
     cl_buf_reserve(buf, n);
     memcpy(buf->data + buf->len, s, n);
@@ -37,20 +30,29 @@ static void cl_buf_append(cl_buf_t *buf, const char *s) {
     buf->data[buf->len] = '\0';
 }
 
-static void cl_buf_append_char(cl_buf_t *buf, char c) {
+void cl_buf_append_char(cl_buf_t *buf, char c) {
     cl_buf_reserve(buf, 1);
     buf->data[buf->len++] = c;
     buf->data[buf->len] = '\0';
 }
 
-static void cl_buf_append_indent(cl_buf_t *buf, int indent) {
+void cl_buf_append_indent(cl_buf_t *buf, int indent) {
     for (int i = 0; i < indent; i++) {
         cl_buf_append(buf, "  ");
     }
 }
 
-static void cl_write_string_literal(cl_buf_t *buf, const char *s) {
-    cl_buf_append_char(buf, '"');
+char *cl_buf_finish(cl_buf_t *buf) {
+    if (!buf->data) {
+        buf->data = calloc(1, 1);
+        if (!buf->data) {
+            abort();
+        }
+    }
+    return buf->data;
+}
+
+void cl_write_escaped_text(cl_buf_t *buf, const char *s) {
     for (const char *p = s; *p; p++) {
         switch (*p) {
             case '"': cl_buf_append(buf, "\\\""); break;
@@ -58,23 +60,59 @@ static void cl_write_string_literal(cl_buf_t *buf, const char *s) {
             case '\n': cl_buf_append(buf, "\\n"); break;
             case '\t': cl_buf_append(buf, "\\t"); break;
             case '\r': cl_buf_append(buf, "\\r"); break;
+            case '$':
+            case '%':
+                cl_buf_append_char(buf, *p);
+                if (p[1] == '{') {
+                    cl_buf_append_char(buf, *p); /* "${" -> "$${", "%{" -> "%%{" */
+                }
+                break;
             default: cl_buf_append_char(buf, *p); break;
         }
     }
+}
+
+void cl_write_string_literal(cl_buf_t *buf, const char *s) {
+    cl_buf_append_char(buf, '"');
+    cl_write_escaped_text(buf, s);
     cl_buf_append_char(buf, '"');
 }
 
-static void cl_write_number(cl_buf_t *buf, double value) {
-    char tmp[64];
-    if (value == (double)(long long)value) {
-        snprintf(tmp, sizeof(tmp), "%lld", (long long)value);
-    } else {
-        snprintf(tmp, sizeof(tmp), "%g", value);
+int cl_format_number(char *out, size_t size, double value) {
+    if (size > 0) {
+        out[0] = '\0';
     }
-    cl_buf_append(buf, tmp);
+    if (value != value || value - value != 0) {
+        return -1; /* NaN, or an infinity (inf - inf is NaN) */
+    }
+    /* Range-checked before the cast: converting a double that doesn't fit
+     * in a long long is undefined behavior. LLONG_MIN is a power of two, so
+     * both bounds are exact doubles. */
+    if (value >= (double)LLONG_MIN && value < -(double)LLONG_MIN && value == (double)(long long)value) {
+        snprintf(out, size, "%lld", (long long)value);
+        return 0;
+    }
+    for (int precision = 15; precision <= 17; precision++) {
+        snprintf(out, size, "%.*g", precision, value);
+        if (strtod(out, NULL) == value) {
+            break;
+        }
+    }
+    return 0;
 }
 
-static int cl_is_bare_ident(const char *s) {
+void cl_write_number(cl_buf_t *buf, double value) {
+    char tmp[64];
+    if (cl_format_number(tmp, sizeof(tmp), value) == 0) {
+        cl_buf_append(buf, tmp);
+    } else if (value != value) {
+        cl_buf_append(buf, "null");
+    } else {
+        cl_buf_append(buf, value > 0 ? "1e999" : "-1e999");
+    }
+}
+
+int cl_is_bare_ident(const char *s) {
     if (!s || !(isalpha((unsigned char)s[0]) || s[0] == '_')) {
         return 0;
     }
@@ -101,12 +139,26 @@ static void cl_write_operand(cl_buf_t *buf, const cl_expr_t *expr, int indent) {
     }
 }
 
+/* A computed object key: a template is written back as its quoted string,
+ * anything else inside the parentheses it came from. */
+static void cl_write_computed_key(cl_buf_t *buf, const cl_expr_t *key_expr, int indent) {
+    if (key_expr->kind == CL_EXPR_TEMPLATE) {
+        cl_write_expr(buf, key_expr, indent);
+        return;
+    }
+    cl_buf_append_char(buf, '(');
+    cl_write_expr(buf, key_expr, indent);
+    cl_buf_append_char(buf, ')');
+}
+
 static void cl_write_object(cl_buf_t *buf, const cl_expr_t *expr, int indent) {
     cl_buf_append(buf, "{\n");
     for (size_t i = 0; i < expr->as.object.count; i++) {
         const cl_object_item_t *item = &expr->as.object.items[i];
         cl_buf_append_indent(buf, indent + 1);
-        if (cl_is_bare_ident(item->key)) {
+        if (item->key_expr) {
+            cl_write_computed_key(buf, item->key_expr, indent + 1);
+        } else if (cl_is_bare_ident(item->key)) {
             cl_buf_append(buf, item->key);
         } else {
             cl_write_string_literal(buf, item->key);
@@ -260,41 +312,12 @@ static void cl_write_for(cl_buf_t *buf, const cl_expr_t *expr, int indent) {
 /* Escapes the same characters as a plain string literal, plus literal
  * "${"/"%{" sequences (as "$${"/"%%{") so a template part that happens to
  * contain them round-trips instead of being reinterpreted on reload. */
-static void cl_write_template_literal_text(cl_buf_t *buf, const char *s) {
-    for (const char *p = s; *p; p++) {
-        switch (*p) {
-            case '"': cl_buf_append(buf, "\\\""); break;
-            case '\\': cl_buf_append(buf, "\\\\"); break;
-            case '\n': cl_buf_append(buf, "\\n"); break;
-            case '\t': cl_buf_append(buf, "\\t"); break;
-            case '\r': cl_buf_append(buf, "\\r"); break;
-            case '$':
-                if (p[1] == '{') {
-                    cl_buf_append(buf, "$${");
-                    p++;
-                } else {
-                    cl_buf_append_char(buf, '$');
-                }
-                break;
-            case '%':
-                if (p[1] == '{') {
-                    cl_buf_append(buf, "%%{");
-                    p++;
-                } else {
-                    cl_buf_append_char(buf, '%');
-                }
-                break;
-            default: cl_buf_append_char(buf, *p); break;
-        }
-    }
-}
-
 static void cl_write_template(cl_buf_t *buf, const cl_template_t *tpl, int indent) {
     for (size_t i = 0; i < tpl->count; i++) {
         const cl_template_part_t *part = &tpl->parts[i];
         switch (part->kind) {
             case CL_TPL_LITERAL:
-                cl_write_template_literal_text(buf, part->text);
+                cl_write_escaped_text(buf, part->text);
                 break;
             case CL_TPL_INTERP:
                 cl_buf_append(buf, "${");
@@ -382,7 +405,11 @@ static void cl_write_body(cl_buf_t *buf, const cl_body_t *body, int indent) {
             cl_buf_append(buf, block->type);
             for (size_t l = 0; l < block->label_count; l++) {
                 cl_buf_append_char(buf, ' ');
-                cl_write_string_literal(buf, block->labels[l]);
+                if (block->label_exprs && block->label_exprs[l]) {
+                    cl_write_expr(buf, block->label_exprs[l], indent); /* a template: quoted */
+                } else {
+                    cl_write_string_literal(buf, block->labels[l]);
+                }
             }
             cl_buf_append(buf, " {\n");
             cl_write_body(buf, block->body, indent + 1);
@@ -395,13 +422,7 @@ static void cl_write_body(cl_buf_t *buf, const cl_body_t *body, int indent) {
 char *cl_document_to_string(const cl_document_t *doc) {
     cl_buf_t buf = {0};
     cl_write_body(&buf, doc->root, 0);
-    if (!buf.data) {
-        buf.data = calloc(1, 1);
-        if (!buf.data) {
-            abort();
-        }
-    }
-    return buf.data;
+    return cl_buf_finish(&buf);
 }
 
 int cl_save_file(const cl_document_t *doc, const char *path, cl_error_t *err) {

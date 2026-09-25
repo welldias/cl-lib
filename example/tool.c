@@ -21,7 +21,8 @@ static void dump_object(const cl_expr_t *expr, int indent) {
     size_t count = cl_expr_object_count(expr);
     for (size_t i = 0; i < count; i++) {
         print_indent(indent + 1);
-        printf("%s = ", cl_expr_object_key_at(expr, i));
+        const char *key = cl_expr_object_key_at(expr, i);
+        printf("%s = ", key ? key : "<chave calculada>");
         dump_expr(cl_expr_object_value_at(expr, i), indent + 1);
     }
     print_indent(indent);
@@ -169,7 +170,11 @@ static void dump_body(const cl_body_t *body, int indent) {
             const cl_block_t *block = item->as.block;
             printf("%s", block->type);
             for (size_t l = 0; l < block->label_count; l++) {
-                printf(" \"%s\"", block->labels[l]);
+                if (block->labels[l]) {
+                    printf(" \"%s\"", block->labels[l]);
+                } else {
+                    printf(" <rotulo calculado>");
+                }
             }
             printf(" {\n");
             dump_body(block->body, indent + 1);
@@ -317,21 +322,78 @@ static void try_evaluate(const char *path, const cl_bindings_t *bindings, const 
     cl_document_free(doc);
 }
 
-int main(int argc, char **argv) {
-    printf("cllib version %s\n\n", cl_version());
+/* --json / --get=<path>: prints only the requested output, so it can be
+ * piped into other tools; every error goes to stderr with exit status 1. */
+static int run_export(const char *path, const cl_bindings_t *bindings, const cl_schema_t *schema,
+                      const char *get_path, int json) {
+    cl_error_t err;
+    cl_document_t *doc = cl_load_file(path, &err);
+    if (!doc) {
+        fprintf(stderr, "%s: erro de parse (linha %d, coluna %d): %s\n", path, err.line, err.col, err.message);
+        return 1;
+    }
+    if (schema && cl_schema_validate(schema, doc, NULL, &err) != 0) {
+        fprintf(stderr, "%s: erro de schema (linha %d, coluna %d): %s\n", path, err.line, err.col, err.message);
+        cl_document_free(doc);
+        return 1;
+    }
+    cl_evaluated_t *result = cl_document_evaluate_with(doc, bindings, &err);
+    if (!result) {
+        fprintf(stderr, "%s: erro de avaliacao (linha %d, coluna %d): %s\n", path, err.line, err.col,
+                err.message);
+        cl_document_free(doc);
+        return 1;
+    }
+    int status = 0;
+    if (schema && cl_schema_validate(schema, doc, result, &err) != 0) {
+        fprintf(stderr, "%s: erro de schema (linha %d, coluna %d): %s\n", path, err.line, err.col, err.message);
+        status = 1;
+    } else if (!get_path) {
+        char *text = cl_evaluated_to_json(result);
+        fputs(text, stdout);
+        free(text);
+    } else {
+        const cl_evaluated_body_t *root = cl_evaluated_root(result);
+        const cl_evaluated_block_t *block = cl_get_block(root, get_path);
+        const cl_value_t *value = cl_get_value(root, get_path);
+        char *text = NULL;
+        if (block) {
+            text = json ? cl_evaluated_block_to_json(block) : cl_evaluated_block_to_string(block);
+            fputs(text, stdout);
+        } else if (value) {
+            text = json ? cl_value_to_json(value) : cl_value_to_string(value);
+            printf("%s\n", text);
+        } else {
+            fprintf(stderr, "%s: '%s' nao definido\n", path, get_path);
+            status = 1;
+        }
+        free(text);
+    }
+    cl_evaluated_free(result);
+    cl_document_free(doc);
+    return status;
+}
 
+int main(int argc, char **argv) {
     if (argc < 2) {
-        fprintf(stderr, "uso: %s <arquivo.cl> [--schema=<schema.cl>] [nome=valor ...]\n", argv[0]);
+        fprintf(stderr, "uso: %s <arquivo.cl> [--schema=<schema.cl>] [--json] [--get=<caminho>] [nome=valor ...]\n",
+                argv[0]);
         return 1;
     }
 
     const char *cl_file = argv[1];
     const char *schema_file = NULL;
+    const char *get_path = NULL;
+    int json = 0;
     char **binding_args = argv + 2;
     int binding_count = 0;
     for (int i = 2; i < argc; i++) {
         if (strncmp(argv[i], "--schema=", 9) == 0) {
             schema_file = argv[i] + 9;
+        } else if (strncmp(argv[i], "--get=", 6) == 0) {
+            get_path = argv[i] + 6;
+        } else if (strcmp(argv[i], "--json") == 0) {
+            json = 1;
         } else {
             binding_args[binding_count++] = argv[i];
         }
@@ -354,10 +416,16 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    try_load_and_dump(cl_file);
-    try_evaluate(cl_file, bindings, schema);
+    int status = 0;
+    if (json || get_path) {
+        status = run_export(cl_file, bindings, schema, get_path, json);
+    } else {
+        printf("cllib version %s\n\n", cl_version());
+        try_load_and_dump(cl_file);
+        try_evaluate(cl_file, bindings, schema);
+    }
 
     cl_bindings_free(bindings);
     cl_schema_free(schema);
-    return 0;
+    return status;
 }

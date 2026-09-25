@@ -19,7 +19,8 @@ static void dump_object(const cl_expr_t *expr, int indent) {
     size_t count = cl_expr_object_count(expr);
     for (size_t i = 0; i < count; i++) {
         print_indent(indent + 1);
-        printf("%s = ", cl_expr_object_key_at(expr, i));
+        const char *key = cl_expr_object_key_at(expr, i);
+        printf("%s = ", key ? key : "<chave calculada>");
         dump_expr(cl_expr_object_value_at(expr, i), indent + 1);
     }
     print_indent(indent);
@@ -167,7 +168,11 @@ static void dump_body(const cl_body_t *body, int indent) {
             const cl_block_t *block = item->as.block;
             printf("%s", block->type);
             for (size_t l = 0; l < block->label_count; l++) {
-                printf(" \"%s\"", block->labels[l]);
+                if (block->labels[l]) {
+                    printf(" \"%s\"", block->labels[l]);
+                } else {
+                    printf(" <rotulo calculado>");
+                }
             }
             printf(" {\n");
             dump_body(block->body, indent + 1);

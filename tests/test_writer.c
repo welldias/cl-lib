@@ -178,7 +178,68 @@ static void test_trim_marker_round_trip_is_stable(void) {
     }
 }
 
+/* Serializes `source` and returns the text (NULL on a parse error). */
+static char *write_source(const char *source) {
+    cl_error_t err;
+    cl_document_t *doc = cl_load_string(source, "writer", &err);
+    CL_CHECK(doc != NULL);
+    if (!doc) {
+        return NULL;
+    }
+    char *text = cl_document_to_string(doc);
+    cl_document_free(doc);
+    return text;
+}
+
+/* A literal "$${" / "%%{" decodes to "${" / "%{" text, which must be
+ * escaped again on output or it would reload as an interpolation. Labels
+ * and object keys keep their raw text and are written back unchanged. */
+static void test_template_sequences_stay_text(void) {
+    const char *source =
+        "a = \"$${x}\"\n"
+        "b = \"%%{y} 50%\"\n"
+        "c = o[\"k$${z}\"]\n"
+        "o = {\n"
+        "  \"a$${b}\" = 1\n"
+        "}\n"
+        "x \"l$${z}\" {\n"
+        "}\n";
+    char *text = write_source(source);
+    CL_CHECK_STREQ(text, source);
+    free(text);
+}
+
+/* Numbers keep every digit (not %g's 6), and values outside long long
+ * don't go through an out-of-range (undefined) cast. */
+static void test_numbers_keep_precision(void) {
+    char *text = write_source("a = 3.14159265358979\nb = 0.1\nc = 1e30\nd = -2.5e-8\ne = 1e999\nf = 42\n");
+    CL_CHECK_STREQ(text, "a = 3.14159265358979\nb = 0.1\nc = 1e+30\nd = -2.5e-08\ne = 1e999\nf = 42\n");
+    free(text);
+
+    cl_error_t err;
+    cl_document_t *doc = cl_load_string("pi = 3.141592653589793\nthird = 0.3333333333333333\n", "precision", &err);
+    CL_CHECK(doc != NULL);
+    if (!doc) {
+        return;
+    }
+    char *first = cl_document_to_string(doc);
+    cl_document_t *reparsed = cl_load_string(first, "precision_reparsed", &err);
+    CL_CHECK(reparsed != NULL);
+    if (reparsed) {
+        double pi = 0, third = 0;
+        cl_expr_as_number(cl_body_get_attribute(cl_document_root(reparsed), "pi")->value, &pi);
+        cl_expr_as_number(cl_body_get_attribute(cl_document_root(reparsed), "third")->value, &third);
+        CL_CHECK(pi == 3.141592653589793);
+        CL_CHECK(third == 0.3333333333333333);
+        cl_document_free(reparsed);
+    }
+    free(first);
+    cl_document_free(doc);
+}
+
 void cl_test_run_writer(void) {
+    test_template_sequences_stay_text();
+    test_numbers_keep_precision();
     test_simple_round_trip();
     test_postfix_round_trip_needs_defensive_parens();
     test_trim_marker_round_trip_is_stable();

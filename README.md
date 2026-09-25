@@ -92,8 +92,8 @@ int main(void) {
 }
 ```
 
-The entire public API lives in `include/cl/cl.h`. See `example/cl_tool.c`
-for a fuller example that dumps both the raw AST and the evaluated tree of
+The entire public API lives in `include/cl/cl.h`. See `example/tool.c` (the
+`cl_tool` program) for a fuller example that dumps both the raw AST and the evaluated tree of
 any `.cl` file.
 
 ## Syntax tour
@@ -160,6 +160,44 @@ list_text = <<-EOF
   %{endfor~}
   EOF
 ```
+
+**Every quoted string is a template**
+
+The same rule applies wherever a quoted string appears: attribute values,
+`["..."]` indexes, object keys and block labels. `${...}` always
+interpolates, and `$${...}` / `%%{...}` are always the literal text
+`${...}` / `%{...}`.
+
+```hcl
+env = "prod"
+
+hosts = {
+  "db_${env}"  = "10.0.0.5"     # key "db_prod"
+  "$${raw}"    = "literal"      # key "${raw}", literally
+  (upper(env)) = "computed"     # "(expr)" keys too: key "PROD"
+}
+db = hosts["db_${env}"]         # "10.0.0.5"
+
+server "web-${env}" {           # label "web-prod"
+  port = 80
+}
+port = server.web-prod.port     # 80
+```
+
+- **Object keys**: a bare identifier is always a literal key (`{ env = 1 }`
+  has the key `env`, not the value of `env`). A computed key may be a
+  string, a number or a bool, and numbers and bools become their text.
+  A key that appears twice in the same object, whether written
+  literally or computed, is an evaluation error.
+- **Computed block labels are a cl extension**: HCL only accepts literal
+  labels. A computed label is evaluated at the top level, so it can use
+  attributes, other blocks and bindings. A label that needs its own
+  block to get its value (for example `name = server.api.port` with
+  `server "${name}" {}`) is reported as a circular reference. Before
+  evaluation, a computed label has no value: `cl_block_t.labels[i]` is
+  `NULL`, its template is in `label_exprs[i]`, and the AST lookup
+  `cl_body_find_block()` never matches it. Computed object keys work the
+  same way (`key` is `NULL` and `key_expr` holds the expression).
 
 **Heredoc**
 
@@ -372,6 +410,197 @@ Rules:
 ./build/example/cl_tool cl/schema/machine.cl --schema=cl/schema/machine.schema.cl
 ```
 
+## Reading values
+
+After evaluation, the `cl_get_*` functions read a value by **path**
+instead of walking `cl_evaluated_body_t` / `cl_value_t` by hand. They only
+work on the evaluated result; the raw AST keeps its own navigation API.
+
+```hcl
+# app.cl
+port = 8080
+
+server "web" {
+  host = "web.local"
+  tls {
+    enabled = true
+  }
+}
+
+machine "m1" {
+  disk {
+    size = 100
+  }
+  disk {
+    size = 200
+  }
+}
+```
+
+```c
+const cl_evaluated_body_t *root = cl_evaluated_root(ev);
+
+long port    = cl_get_int(root, "port", 80);                       /* 8080 */
+int  tls     = cl_get_bool(root, "server.web.tls.enabled", 0);     /* 1 */
+long workers = cl_get_int(root, "workers", 4);                     /* 4: not defined */
+
+const cl_evaluated_block_t *web = cl_get_block(root, "server.web");
+const char *host = web ? cl_get_string(web->body, "host", "localhost") : "localhost";
+
+cl_block_iter_t it;
+const cl_evaluated_block_t *disk;
+long total = 0;
+cl_block_iter_init(&it, root, "machine.m1.disk");
+while ((disk = cl_block_iter_next(&it)) != NULL) {
+    total += cl_get_int(disk->body, "size", 0);                    /* 100 + 200 */
+}
+```
+
+| Function                                  | Returns                                           |
+|-------------------------------------------|---------------------------------------------------|
+| `cl_get_string(base, path, def)`          | the string, or `def` (which may be `NULL`)        |
+| `cl_get_int(base, path, def)`             | the number as a `long`, or `def`                  |
+| `cl_get_number(base, path, def)`          | the number as a `double`, or `def`                |
+| `cl_get_bool(base, path, def)`            | the bool, or `def`                                |
+| `cl_get_list(base, path)`                 | the list value, or `NULL`                         |
+| `cl_get_value(base, path)`                | a value of any kind (objects included), or `NULL` |
+| `cl_get_block(base, path)`                | the block the path names, or `NULL`               |
+| `cl_block_iter_init` / `cl_block_iter_next` | every block of one type, in document order     |
+
+- **Base**: `cl_evaluated_root(ev)` for the whole document, or a block's
+  `->body` to read relative to that block.
+- **Paths**: `server.web.port`, `disks[0].size`, `tags["Name"]`, and
+  `["a.b"]` for names holding `.` or `[` (quoted names take no escapes).
+  In a body, an **attribute** wins; otherwise a **block** of that type is
+  picked by the next parts as its labels, with the same longest-match rule
+  as [traversal resolution](#how-traversal-resolution-works), at every
+  level of the path. Unlike traversals, this also reaches unlabeled blocks
+  (`server.port` reads `server { port = 82 }`).
+- **Defaults**: a missing path, a malformed path, a `null` value and a
+  value of the wrong type all give `def` (or `NULL`). `cl_get_int` also
+  gives `def` for a number with a fractional part or outside `long`.
+  Use `cl_get_value()` to tell "not defined" apart from a default.
+- **Iterator**: the last part of the path is the block type; the parts
+  before it name the block to search in (`"disk"` alone searches `base`).
+  It lives on the stack and allocates nothing, but keeps a pointer into
+  `path`, which must outlive it.
+
+### More helpers
+
+```hcl
+mode  = "safe"
+ports = [80, 443]
+
+server "web" {
+  port = 8080
+}
+
+service "api" {
+  env = { LOG = "debug", REGION = "sa-east-1" }
+}
+```
+
+```c
+static const char *const modes[] = {"fast", "safe", "debug"};
+int mode = cl_get_enum(root, "mode", modes, 3, 0);                /* 1 */
+
+long ports[8];
+size_t n = cl_get_ints(root, "ports", ports, 8);                   /* 2: 80, 443 */
+
+long port = cl_get_intf(root, 80, "server.%s.port", name);         /* 8080 when name is "web" */
+
+if (cl_get_kind(root, "server.web") == CL_GET_BLOCK) { /* ... */ }
+size_t servers = cl_get_count(root, "server");                     /* 1 */
+
+cl_attr_iter_t it;
+const char *key;
+const cl_value_t *value;
+cl_attr_iter_init(&it, root, "service.api.env");
+while (cl_attr_iter_next(&it, &key, &value)) {
+    printf("%s=%s\n", key, cl_value_as_string(value));             /* LOG=debug, REGION=sa-east-1 */
+}
+```
+
+| Function                                         | Does                                                                 |
+|--------------------------------------------------|----------------------------------------------------------------------|
+| `cl_get_kind(base, path)`                        | what the path names: `CL_GET_STRING` … `CL_GET_BLOCK`, or `CL_GET_MISSING` (null included) |
+| `cl_has(base, path)`                             | 1 when the path names a block or a non-null value                    |
+| `cl_get_count(base, path)`                       | items of a list, keys of an object, or the blocks `cl_block_iter` would walk |
+| `cl_get_enum(base, path, names, count, def)`     | index of the string in `names` (exact match), or `def`               |
+| `cl_get_strings` / `cl_get_ints` / `cl_get_numbers` `(base, path, out, max)` | copy a list into a C array; see below |
+| `cl_attr_iter_init` / `cl_attr_iter_next`        | every attribute of a block body (nested blocks skipped) or every key of an object; `NULL`/`""` walks `base` |
+| `cl_get_stringf` / `cl_get_intf` / `cl_get_boolf` / `cl_get_blockf` | the same getters with a `printf`-style path              |
+
+- **List copies**: when every item has the right type (for
+  `cl_get_ints`, integral numbers that fit in a `long`), the first
+  `min(count, max)` items are written and the list's full count is
+  returned, so a result larger than `max` means `out` was too small. Pass
+  `NULL, 0` to only ask for the count. Otherwise the result is 0 and `out`
+  is left untouched. Copied strings still belong to the evaluated result.
+- **Formatted paths**: the formatted text is an ordinary path, so a label
+  holding `.` or `[` still needs the `["..."]` form. `def` comes before the
+  format string because of the variadic arguments.
+
+## Exporting
+
+An evaluated result - or a single value or block of it - can be written
+back out as text, in cl syntax or as JSON. Each function returns a
+`malloc`'d string that you release with `free()`.
+
+| Function                              | Writes                                               |
+|---------------------------------------|------------------------------------------------------|
+| `cl_value_to_string(value)`           | one value in cl syntax: `"a"`, `42`, `[1, 2]`, `{ k = "v" }` |
+| `cl_value_to_json(value)`             | one value as JSON                                    |
+| `cl_evaluated_to_string(result)`      | the whole document, flattened (see below)            |
+| `cl_evaluated_to_json(result)`        | the whole document as JSON                           |
+| `cl_evaluated_block_to_string(block)` | one block (as returned by `cl_get_block`)            |
+| `cl_evaluated_block_to_json(block)`   | one block as JSON                                    |
+
+- **Flattened cl documents**: every expression, template and binding is
+  already resolved, so the output is plain literals. Loading and
+  evaluating it gives the same values again, which makes it a handy way to
+  see the final configuration.
+- **JSON layout**: nothing is merged or renamed, so every document can be
+  represented. A body is `{"attributes": {...}, "blocks": [...]}` and a
+  block is `{"type": ..., "labels": [...], "body": <body>}`, with blocks in
+  document order:
+
+  ```json
+  {
+    "attributes": {
+      "port": 8080
+    },
+    "blocks": [
+      {
+        "type": "server",
+        "labels": ["web"],
+        "body": {
+          "attributes": {
+            "host": "web.local"
+          },
+          "blocks": []
+        }
+      }
+    ]
+  }
+  ```
+- **Details**: numbers keep full precision (integers without a fraction,
+  otherwise the shortest form that reads back exactly). A repeated
+  attribute name keeps only its first value in JSON, which is the value
+  every lookup sees, so keys stay unique. NaN and infinities become `null`
+  in JSON.
+
+`cl_tool` exposes both. With `--json` or `--get`, it prints only the
+result, so the output can be piped into other tools. Errors go to stderr
+with exit status 1.
+
+```sh
+./build/example/cl_tool app.cl --json                   # whole document as JSON
+./build/example/cl_tool app.cl --get=server.web.port    # 80
+./build/example/cl_tool app.cl --get=server.web         # the block, in cl syntax
+./build/example/cl_tool app.cl --get=server.web --json  # the block as JSON
+```
+
 ## Built-in functions
 
 | Function            | Behavior                                                                 |
@@ -389,6 +618,8 @@ Calling an unregistered function is an evaluation error, not a parse error.
   are callable.
 - Template trim markers (`~`) don't survive serialization as `~`: the
   writer emits the already-trimmed text, which reparses to the same result.
+- NaN has no literal form: `cl_value_to_string()` and the document export
+  write it as `null` (infinities are fine: `1e999` / `-1e999`).
 
 ## Project layout
 
@@ -397,8 +628,9 @@ include/cl/cl.h   the entire public API
 src/               implementation, one concern per file (lexer, parser,
                    evaluator, navigation, mutation, writer, ...)
 example/           cl_example (dumps every cl/*.cl fixture) and
-                   cl_tool <file.cl> [--schema=<schema.cl>] [name=value ...]
-                   (dumps one file you pass in)
+                   cl_tool <file.cl> [--schema=<schema.cl>] [--json]
+                   [--get=<path>] [name=value ...] (dumps or exports
+                   one file you pass in)
 tests/             the CTest suite
 cl/                .cl fixture files used by the examples and tests
                    (cl/schema/: the block schema example)

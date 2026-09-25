@@ -55,7 +55,7 @@ static int cl_labels_match(const cl_block_t *block, const char *const *labels, s
         return 0;
     }
     for (size_t i = 0; i < label_count; i++) {
-        if (strcmp(block->labels[i], labels[i]) != 0) {
+        if (!block->labels[i] || strcmp(block->labels[i], labels[i]) != 0) { /* NULL: computed */
             return 0;
         }
     }
@@ -122,6 +122,13 @@ const char *cl_expr_object_key_at(const cl_expr_t *expr, size_t index) {
     return expr->as.object.items[index].key;
 }
 
+cl_expr_t *cl_expr_object_key_expr_at(const cl_expr_t *expr, size_t index) {
+    if (!expr || expr->kind != CL_EXPR_OBJECT || index >= expr->as.object.count) {
+        return NULL;
+    }
+    return expr->as.object.items[index].key_expr;
+}
+
 cl_expr_t *cl_expr_object_value_at(const cl_expr_t *expr, size_t index) {
     if (!expr || expr->kind != CL_EXPR_OBJECT || index >= expr->as.object.count) {
         return NULL;
@@ -134,7 +141,8 @@ cl_expr_t *cl_expr_object_get(const cl_expr_t *expr, const char *key) {
         return NULL;
     }
     for (size_t i = 0; i < expr->as.object.count; i++) {
-        if (strcmp(expr->as.object.items[i].key, key) == 0) {
+        const char *item_key = expr->as.object.items[i].key; /* NULL: computed */
+        if (item_key && strcmp(item_key, key) == 0) {
             return expr->as.object.items[i].value;
         }
     }

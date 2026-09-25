@@ -6,9 +6,10 @@
 cl_body_t *cl_body_new(cl_document_t *doc);
 cl_attribute_t *cl_body_append_attribute(cl_document_t *doc, cl_body_t *body, const char *name,
                                           cl_expr_t *value, int line, int col);
+/* `label_exprs` may be NULL when every label is constant (see cl_block_t). */
 cl_block_t *cl_body_append_block(cl_document_t *doc, cl_body_t *body, const char *type,
-                                  char **labels, size_t label_count, cl_body_t *block_body,
-                                  int line, int col);
+                                  char **labels, cl_expr_t **label_exprs, size_t label_count,
+                                  cl_body_t *block_body, int line, int col);
 
 cl_expr_t *cl_expr_new_string(cl_document_t *doc, const char *value, int line, int col);
 cl_expr_t *cl_expr_new_number(cl_document_t *doc, double value, int line, int col);
@@ -18,6 +19,7 @@ cl_expr_t *cl_expr_new_object(cl_document_t *doc, int line, int col);
 cl_expr_t *cl_expr_new_traversal(cl_document_t *doc, const char *root, int line, int col);
 
 void cl_expr_object_add(cl_document_t *doc, cl_expr_t *obj, const char *key, cl_expr_t *value);
+void cl_expr_object_add_computed(cl_document_t *doc, cl_expr_t *obj, cl_expr_t *key_expr, cl_expr_t *value);
 void cl_expr_traversal_add_attr(cl_document_t *doc, cl_expr_t *trav, const char *name);
 void cl_expr_traversal_add_index_number(cl_document_t *doc, cl_expr_t *trav, double index);
 void cl_expr_traversal_add_index_string(cl_document_t *doc, cl_expr_t *trav, const char *name);

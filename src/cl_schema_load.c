@@ -110,6 +110,11 @@ static int cl_schema_load_attr(cl_schema_block_t *block, const cl_attribute_t *a
         for (size_t i = 0; i < cl_expr_object_count(value); i++) {
             const char *key = cl_expr_object_key_at(value, i);
             const cl_expr_t *item = cl_expr_object_value_at(value, i);
+            if (!key) {
+                const cl_expr_t *key_expr = cl_expr_object_key_expr_at(value, i);
+                return cl_schema_load_fail(err, key_expr->line, key_expr->col,
+                                           "chave calculada nao e permitida no schema");
+            }
             if (strcmp(key, "type") == 0) {
                 if (cl_schema_load_type(item, &type, err) != 0) {
                     return -1;
@@ -170,6 +175,9 @@ static int cl_schema_load_block(cl_schema_t *schema, cl_schema_block_t *parent, 
                                    "bloco 'block' precisa de exatamente 1 rotulo (o tipo do bloco)");
     }
     const char *type = decl->labels[0];
+    if (!type) {
+        return cl_schema_load_fail(err, decl->line, decl->col, "rotulo calculado nao e permitido no schema");
+    }
     cl_schema_block_t *rule = parent ? cl_schema_block_add_block(parent, type) : cl_schema_add_block(schema, type);
     if (!rule) {
         return cl_schema_load_fail(err, decl->line, decl->col, "tipo de bloco '%s' duplicado no schema", type);

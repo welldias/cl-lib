@@ -85,8 +85,14 @@ typedef enum cl_binary_op {
 
 typedef struct cl_expr cl_expr_t;
 
+/* An object key is either constant - a bare identifier, or a quoted
+ * string without interpolation, stored decoded in `key` ("$${x}" gives
+ * the text "${x}") - or computed at evaluation time: a quoted string with
+ * "${...}"/"%{...}", or "(expr)". A computed key has `key` == NULL and its
+ * expression in `key_expr`; a constant one has `key_expr` == NULL. */
 typedef struct cl_object_item {
     char *key;
+    cl_expr_t *key_expr;
     cl_expr_t *value;
 } cl_object_item_t;
 
@@ -202,9 +208,16 @@ typedef struct cl_attribute {
     int col;
 } cl_attribute_t;
 
+/* Block labels are quoted strings and, like every quoted string, may be
+ * templates - an extension of cl over HCL, which only allows literal
+ * labels. A constant label is stored decoded in labels[i]. A label with
+ * "${...}"/"%{...}" is computed at evaluation time: labels[i] is NULL and
+ * label_exprs[i] holds its template. label_exprs itself is NULL when every
+ * label is constant. */
 typedef struct cl_block {
     char *type;
     char **labels;
+    cl_expr_t **label_exprs;
     size_t label_count;
     size_t label_capacity;
     cl_body_t *body;
@@ -261,7 +274,11 @@ cl_attribute_t *cl_body_get_attribute(const cl_body_t *body, const char *name);
 size_t cl_body_find_blocks(const cl_body_t *body, const char *type, cl_block_t ***out_blocks);
 
 /* Finds the first block of `type` whose labels match exactly. Pass
- * label_count == 0 (labels may be NULL) to match blocks with no labels. */
+ * label_count == 0 (labels may be NULL) to match blocks with no labels.
+ * A computed label ("web-${env}") has no value before evaluation and never
+ * matches here; use cl_evaluated_body_find_block() / cl_get_block() on the
+ * evaluated result instead. The same goes for computed keys in
+ * cl_expr_object_get(). */
 cl_block_t *cl_body_find_block(const cl_body_t *body, const char *type,
                                 const char *const *labels, size_t label_count);
 
@@ -271,7 +288,10 @@ int cl_expr_as_number(const cl_expr_t *expr, double *out);
 int cl_expr_as_bool(const cl_expr_t *expr, int *out);
 
 size_t cl_expr_object_count(const cl_expr_t *expr);
+/* NULL for a computed key: see cl_expr_object_key_expr_at(). */
 const char *cl_expr_object_key_at(const cl_expr_t *expr, size_t index);
+/* The expression of a computed key; NULL for a constant one. */
+cl_expr_t *cl_expr_object_key_expr_at(const cl_expr_t *expr, size_t index);
 cl_expr_t *cl_expr_object_value_at(const cl_expr_t *expr, size_t index);
 cl_expr_t *cl_expr_object_get(const cl_expr_t *expr, const char *key);
 
@@ -471,6 +491,161 @@ size_t cl_value_object_count(const cl_value_t *value);
 const char *cl_value_object_key_at(const cl_value_t *value, size_t index);
 cl_value_t *cl_value_object_value_at(const cl_value_t *value, size_t index);
 cl_value_t *cl_value_object_get(const cl_value_t *value, const char *key);
+
+/* ------------------------------------------------------------------ */
+/* Path getters (convenience reads over an evaluated body)              */
+/* ------------------------------------------------------------------ */
+
+/* A path is a sequence of parts starting at `base` (cl_evaluated_root() for
+ * the whole document, or some block's ->body for a relative read):
+ *
+ *     server.web.port     tags["Name"]     disks[0].size     ["a.b"].c
+ *
+ * `.name` or `["name"]` (for names holding "." or "[") look up, in a body,
+ * an attribute first; otherwise a block of that type, consuming the next
+ * parts as its labels - the longest label sequence that matches wins, and
+ * among equal matches the first block in the document. Inside a value,
+ * `.key`/`["key"]` read an object and `[n]` a list. Quoted names take no
+ * escapes: they end at the first '"'.
+ *
+ * A missing path, a malformed path, a null value and a value of the wrong
+ * type all count as "not defined": the scalar getters then return `def`,
+ * and the others NULL. cl_get_int only accepts integral numbers that fit in
+ * a long. */
+const char *cl_get_string(const cl_evaluated_body_t *base, const char *path, const char *def);
+long cl_get_int(const cl_evaluated_body_t *base, const char *path, long def);
+double cl_get_number(const cl_evaluated_body_t *base, const char *path, double def);
+int cl_get_bool(const cl_evaluated_body_t *base, const char *path, int def);
+const cl_value_t *cl_get_list(const cl_evaluated_body_t *base, const char *path);
+/* Any kind of value (objects included); NULL when not defined or null. */
+const cl_value_t *cl_get_value(const cl_evaluated_body_t *base, const char *path);
+/* The block the whole path names, e.g. "server.web"; NULL otherwise. */
+const cl_evaluated_block_t *cl_get_block(const cl_evaluated_body_t *base, const char *path);
+
+/* Walks every block of one type, in document order. The last part of
+ * `path` is the block type; the parts before it must name a block whose
+ * body is searched ("machine.web.disk"), or be absent to search `base`
+ * itself ("disk"). The iterator keeps a pointer into `path`, so `path` must
+ * outlive it. The fields are private; the struct is public only so it can
+ * live on the stack (no allocation, nothing to free):
+ *
+ *     cl_block_iter_t it;
+ *     const cl_evaluated_block_t *disk;
+ *     cl_block_iter_init(&it, root, "machine.web.disk");
+ *     while ((disk = cl_block_iter_next(&it)) != NULL) { ... }
+ */
+typedef struct cl_block_iter {
+    const cl_evaluated_body_t *body;
+    const char *type;
+    size_t type_len;
+    size_t next;
+} cl_block_iter_t;
+
+void cl_block_iter_init(cl_block_iter_t *it, const cl_evaluated_body_t *base, const char *path);
+const cl_evaluated_block_t *cl_block_iter_next(cl_block_iter_t *it);
+
+/* What a path names. A null value counts as CL_GET_MISSING, like in the
+ * getters above. */
+typedef enum cl_get_kind {
+    CL_GET_MISSING,
+    CL_GET_STRING,
+    CL_GET_NUMBER,
+    CL_GET_BOOL,
+    CL_GET_LIST,
+    CL_GET_OBJECT,
+    CL_GET_BLOCK
+} cl_get_kind_t;
+
+cl_get_kind_t cl_get_kind(const cl_evaluated_body_t *base, const char *path);
+/* 1 when the path names a block or a non-null value, 0 otherwise. */
+int cl_has(const cl_evaluated_body_t *base, const char *path);
+/* Items of a list, keys of an object, or - when the path does not name a
+ * value - how many blocks cl_block_iter would yield for it ("server",
+ * "machine.m1.disk"). 0 for anything else. */
+size_t cl_get_count(const cl_evaluated_body_t *base, const char *path);
+
+/* Index in `names` of the string at `path` (exact, case-sensitive match),
+ * or `def` when it is not defined, not a string, or not in `names`. */
+int cl_get_enum(const cl_evaluated_body_t *base, const char *path, const char *const *names, size_t count, int def);
+
+/* Copy a list into a C array. When `path` names a list whose items all
+ * have the right type (for ints: integral numbers that fit in a long),
+ * write the first min(count, max) items to `out` and return the list's
+ * count - larger than `max` when `out` was too small; `out` may be NULL
+ * with `max` 0 to only ask for the count. Otherwise return 0 and leave
+ * `out` untouched. Strings stay owned by the evaluated result. */
+size_t cl_get_strings(const cl_evaluated_body_t *base, const char *path, const char **out, size_t max);
+size_t cl_get_ints(const cl_evaluated_body_t *base, const char *path, long *out, size_t max);
+size_t cl_get_numbers(const cl_evaluated_body_t *base, const char *path, double *out, size_t max);
+
+/* Walks the attributes of a block body or the keys of an object value, in
+ * document order. `path` names the block or object; NULL or "" walks
+ * `base` itself. Nested blocks are skipped, and null values are yielded
+ * as they are (kind CL_VAL_NULL). Same stack-only contract as
+ * cl_block_iter_t:
+ *
+ *     cl_attr_iter_t it;
+ *     const char *key;
+ *     const cl_value_t *value;
+ *     cl_attr_iter_init(&it, root, "service.api.env");
+ *     while (cl_attr_iter_next(&it, &key, &value)) { ... }
+ */
+typedef struct cl_attr_iter {
+    const cl_evaluated_body_t *body;
+    const cl_value_t *object;
+    size_t next;
+} cl_attr_iter_t;
+
+void cl_attr_iter_init(cl_attr_iter_t *it, const cl_evaluated_body_t *base, const char *path);
+/* Returns 1 and sets *key / *value (either may be NULL) for the next item,
+ * 0 when there are no more. */
+int cl_attr_iter_next(cl_attr_iter_t *it, const char **key, const cl_value_t **value);
+
+/* printf-style paths, for labels that come from variables:
+ *
+ *     long port = cl_get_intf(root, 80, "server.%s.port", name);
+ *
+ * The formatted text is an ordinary path: a label holding "." or "["
+ * still needs the ["..."] form. */
+#if defined(__GNUC__) || defined(__clang__)
+#define CL_PRINTF_FORMAT(fmt_index, first_arg) __attribute__((format(printf, fmt_index, first_arg)))
+#else
+#define CL_PRINTF_FORMAT(fmt_index, first_arg)
+#endif
+
+const char *cl_get_stringf(const cl_evaluated_body_t *base, const char *def, const char *fmt, ...)
+    CL_PRINTF_FORMAT(3, 4);
+long cl_get_intf(const cl_evaluated_body_t *base, long def, const char *fmt, ...) CL_PRINTF_FORMAT(3, 4);
+int cl_get_boolf(const cl_evaluated_body_t *base, int def, const char *fmt, ...) CL_PRINTF_FORMAT(3, 4);
+const cl_evaluated_block_t *cl_get_blockf(const cl_evaluated_body_t *base, const char *fmt, ...)
+    CL_PRINTF_FORMAT(2, 3);
+
+/* ------------------------------------------------------------------ */
+/* Export of evaluated results                                          */
+/* ------------------------------------------------------------------ */
+
+/* Every function returns a malloc'd string the caller releases with
+ * free(), or NULL when given NULL.
+ *
+ * The *_to_string() forms write cl syntax. For a whole result it is a
+ * "flattened" document: every expression, template and binding already
+ * resolved, so reloading and evaluating it gives the same values.
+ * Infinities are written as 1e999/-1e999; NaN, which has no cl form, as
+ * null.
+ *
+ * The *_to_json() forms write indented JSON (2 spaces). A body becomes
+ * { "attributes": {...}, "blocks": [...] } and a block
+ * { "type": "...", "labels": [...], "body": <body> }, blocks in document
+ * order. Where a body repeats an attribute name, only the first one (the
+ * one every lookup sees) is written, so keys stay unique. NaN and
+ * infinities become null. Documents and blocks end with a newline; single
+ * values don't. */
+char *cl_value_to_string(const cl_value_t *value);
+char *cl_value_to_json(const cl_value_t *value);
+char *cl_evaluated_to_string(const cl_evaluated_t *result);
+char *cl_evaluated_to_json(const cl_evaluated_t *result);
+char *cl_evaluated_block_to_string(const cl_evaluated_block_t *block);
+char *cl_evaluated_block_to_json(const cl_evaluated_block_t *block);
 
 /* ------------------------------------------------------------------ */
 /* Schemas (opt-in validation of specialized block types)               */

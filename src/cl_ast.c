@@ -24,11 +24,12 @@ cl_attribute_t *cl_body_append_attribute(cl_document_t *doc, cl_body_t *body, co
 }
 
 cl_block_t *cl_body_append_block(cl_document_t *doc, cl_body_t *body, const char *type,
-                                  char **labels, size_t label_count, cl_body_t *block_body,
-                                  int line, int col) {
+                                  char **labels, cl_expr_t **label_exprs, size_t label_count,
+                                  cl_body_t *block_body, int line, int col) {
     cl_block_t *block = cl_arena_alloc(doc, sizeof(cl_block_t));
     block->type = cl_arena_strdup(doc, type);
     block->labels = labels;
+    block->label_exprs = label_exprs;
     block->label_count = label_count;
     block->label_capacity = label_count;
     block->body = block_body;
@@ -99,6 +100,16 @@ void cl_expr_object_add(cl_document_t *doc, cl_expr_t *obj, const char *key, cl_
                   sizeof(cl_object_item_t));
     cl_object_item_t *item = &obj->as.object.items[obj->as.object.count++];
     item->key = cl_arena_strdup(doc, key);
+    item->key_expr = NULL;
+    item->value = value;
+}
+
+void cl_expr_object_add_computed(cl_document_t *doc, cl_expr_t *obj, cl_expr_t *key_expr, cl_expr_t *value) {
+    cl_array_grow(doc, (void **)&obj->as.object.items, &obj->as.object.count, &obj->as.object.capacity,
+                  sizeof(cl_object_item_t));
+    cl_object_item_t *item = &obj->as.object.items[obj->as.object.count++];
+    item->key = NULL;
+    item->key_expr = key_expr;
     item->value = value;
 }
 

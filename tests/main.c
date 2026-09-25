@@ -9,6 +9,9 @@ void cl_test_run_writer(void);
 void cl_test_run_fixtures(void);
 void cl_test_run_bindings(void);
 void cl_test_run_schema(void);
+void cl_test_run_get(void);
+void cl_test_run_export(void);
+void cl_test_run_strings(void);
 
 int main(int argc, char **argv) {
     const char *group = argc > 1 ? argv[1] : NULL;
@@ -33,6 +36,15 @@ int main(int argc, char **argv) {
     }
     if (!group || strcmp(group, "schema") == 0) {
         cl_test_run_schema();
+    }
+    if (!group || strcmp(group, "get") == 0) {
+        cl_test_run_get();
+    }
+    if (!group || strcmp(group, "export") == 0) {
+        cl_test_run_export();
+    }
+    if (!group || strcmp(group, "strings") == 0) {
+        cl_test_run_strings();
     }
 
     if (cl_test_failures > 0) {

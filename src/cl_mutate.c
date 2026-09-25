@@ -56,7 +56,7 @@ cl_block_t *cl_body_add_block(cl_document_t *doc, cl_body_t *body, const char *t
         cl_label_list_add(doc, &owned_labels, &owned_count, &owned_capacity, labels[i]);
     }
     cl_body_t *child_body = cl_body_new(doc);
-    return cl_body_append_block(doc, body, type, owned_labels, owned_count, child_body, 0, 0);
+    return cl_body_append_block(doc, body, type, owned_labels, NULL, owned_count, child_body, 0, 0);
 }
 
 int cl_body_remove_block(cl_body_t *parent, cl_block_t *block) {

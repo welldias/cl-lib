@@ -372,6 +372,32 @@ static cl_expr_t *cl_parse_bracket(cl_parser_state_t *state) {
     return tuple;
 }
 
+/* Consumes the current string/heredoc token and compiles it: every quoted
+ * string is a template, wherever it appears (value, index, object key or
+ * block label). The result is a plain CL_EXPR_STRING, already decoded,
+ * when there is nothing to interpolate. */
+static cl_expr_t *cl_parse_quoted(cl_parser_state_t *state) {
+    const cl_token_t *tok = cl_cur(state);
+    cl_advance_token(state);
+    /* where the template text itself starts: right after the opening
+     * quote, or at the start of the line after "<<MARKER" */
+    int text_line = tok->kind == CL_TOK_STRING ? tok->line : tok->line + 1;
+    int text_col = tok->kind == CL_TOK_STRING ? tok->col + 1 : 1;
+    cl_error_t local_err = {0};
+    cl_expr_t *expr = cl_compile_template(state->doc, tok->text, text_line, text_col, &local_err);
+    if (!expr) {
+        state->failed = 1;
+        if (state->err) {
+            *state->err = local_err;
+        }
+        return NULL;
+    }
+    /* the string/heredoc as a whole is still located at its token */
+    expr->line = tok->line;
+    expr->col = tok->col;
+    return expr;
+}
+
 static cl_expr_t *cl_parse_object_body(cl_parser_state_t *state, const cl_token_t *open_tok) {
     cl_expr_t *obj = cl_expr_new_object(state->doc, open_tok->line, open_tok->col);
 
@@ -382,11 +408,35 @@ static cl_expr_t *cl_parse_object_body(cl_parser_state_t *state, const cl_token_
             cl_fail(state, key_tok, "esperado '}'");
             return NULL;
         }
-        if (key_tok->kind != CL_TOK_IDENT && key_tok->kind != CL_TOK_STRING) {
+        const char *key = NULL;    /* constant key */
+        cl_expr_t *key_expr = NULL; /* computed key */
+        if (key_tok->kind == CL_TOK_IDENT) {
+            key = key_tok->text;
+            cl_advance_token(state);
+        } else if (key_tok->kind == CL_TOK_STRING) {
+            key_expr = cl_parse_quoted(state);
+            if (state->failed) {
+                return NULL;
+            }
+        } else if (key_tok->kind == CL_TOK_LPAREN) {
+            cl_advance_token(state);
+            key_expr = cl_parse_expr(state);
+            if (state->failed) {
+                return NULL;
+            }
+            if (cl_cur(state)->kind != CL_TOK_RPAREN) {
+                cl_fail(state, cl_cur(state), "esperado ')'");
+                return NULL;
+            }
+            cl_advance_token(state);
+        } else {
             cl_fail(state, key_tok, "chave de objeto invalida");
             return NULL;
         }
-        cl_advance_token(state);
+        if (key_expr && key_expr->kind == CL_EXPR_STRING) {
+            key = key_expr->as.string_value; /* nothing to compute */
+            key_expr = NULL;
+        }
 
         const cl_token_t *sep_tok = cl_cur(state);
         if (sep_tok->kind != CL_TOK_EQUAL && sep_tok->kind != CL_TOK_COLON) {
@@ -399,7 +449,11 @@ static cl_expr_t *cl_parse_object_body(cl_parser_state_t *state, const cl_token_
         if (state->failed) {
             return NULL;
         }
-        cl_expr_object_add(state->doc, obj, key_tok->text, value);
+        if (key_expr) {
+            cl_expr_object_add_computed(state->doc, obj, key_expr, value);
+        } else {
+            cl_expr_object_add(state->doc, obj, key, value);
+        }
 
         if (cl_cur(state)->kind == CL_TOK_COMMA) {
             cl_advance_token(state);
@@ -425,26 +479,8 @@ static cl_expr_t *cl_parse_primary(cl_parser_state_t *state) {
     const cl_token_t *tok = cl_cur(state);
     switch (tok->kind) {
         case CL_TOK_STRING:
-        case CL_TOK_HEREDOC: {
-            cl_advance_token(state);
-            /* where the template text itself starts: right after the opening
-             * quote, or at the start of the line after "<<MARKER" */
-            int text_line = tok->kind == CL_TOK_STRING ? tok->line : tok->line + 1;
-            int text_col = tok->kind == CL_TOK_STRING ? tok->col + 1 : 1;
-            cl_error_t local_err = {0};
-            cl_expr_t *expr = cl_compile_template(state->doc, tok->text, text_line, text_col, &local_err);
-            if (!expr) {
-                state->failed = 1;
-                if (state->err) {
-                    *state->err = local_err;
-                }
-                return NULL;
-            }
-            /* the string/heredoc as a whole is still located at its token */
-            expr->line = tok->line;
-            expr->col = tok->col;
-            return expr;
-        }
+        case CL_TOK_HEREDOC:
+            return cl_parse_quoted(state);
         case CL_TOK_NUMBER:
             cl_advance_token(state);
             return cl_expr_new_number(state->doc, tok->number, tok->line, tok->col);
@@ -737,12 +773,34 @@ static cl_body_t *cl_parse_body(cl_parser_state_t *state, int top_level) {
             }
             cl_body_append_attribute(state->doc, body, name_tok->text, value, name_tok->line, name_tok->col);
         } else if (next_tok->kind == CL_TOK_STRING || next_tok->kind == CL_TOK_LBRACE) {
+            /* labels[i] holds a constant label; label_exprs[i] a computed
+             * one. Both grow in step; label_exprs is dropped (NULL) at the
+             * end when no label turned out to be computed. */
             char **labels = NULL;
+            cl_expr_t **label_exprs = NULL;
             size_t label_count = 0;
             size_t label_capacity = 0;
+            size_t expr_count = 0;
+            size_t expr_capacity = 0;
+            int any_computed = 0;
             while (cl_cur(state)->kind == CL_TOK_STRING) {
-                cl_label_list_add(state->doc, &labels, &label_count, &label_capacity, cl_cur(state)->text);
-                cl_advance_token(state);
+                cl_expr_t *label = cl_parse_quoted(state);
+                if (state->failed) {
+                    return NULL;
+                }
+                cl_array_grow(state->doc, (void **)&labels, &label_count, &label_capacity, sizeof(char *));
+                cl_array_grow(state->doc, (void **)&label_exprs, &expr_count, &expr_capacity, sizeof(cl_expr_t *));
+                if (label->kind == CL_EXPR_STRING) {
+                    labels[label_count++] = label->as.string_value;
+                    label_exprs[expr_count++] = NULL;
+                } else {
+                    labels[label_count++] = NULL;
+                    label_exprs[expr_count++] = label;
+                    any_computed = 1;
+                }
+            }
+            if (!any_computed) {
+                label_exprs = NULL;
             }
             const cl_token_t *brace_tok = cl_cur(state);
             if (brace_tok->kind != CL_TOK_LBRACE) {
@@ -760,7 +818,7 @@ static cl_body_t *cl_parse_body(cl_parser_state_t *state, int top_level) {
                 return NULL;
             }
             cl_advance_token(state); /* '}' */
-            cl_body_append_block(state->doc, body, name_tok->text, labels, label_count, child,
+            cl_body_append_block(state->doc, body, name_tok->text, labels, label_exprs, label_count, child,
                                   name_tok->line, name_tok->col);
         } else {
             cl_fail(state, next_tok, "esperado '=' ou rotulo de bloco");

@@ -2,6 +2,7 @@
 
 #include "cl_bindings.h"
 #include "cl_functions.h"
+#include "cl_writer.h"
 
 #include <math.h>
 #include <stdarg.h>
@@ -86,21 +87,16 @@ void cl_val_object_add(cl_eval_ctx_t *ctx, cl_value_t *obj, const char *key, cl_
     item->value = value;
 }
 
-static void cl_write_number_into(char *out, size_t out_size, double value) {
-    if (value == (double)(long long)value) {
-        snprintf(out, out_size, "%lld", (long long)value);
-    } else {
-        snprintf(out, out_size, "%g", value);
-    }
-}
-
 const char *cl_val_require_string(cl_eval_ctx_t *ctx, const cl_value_t *v, int line, int col) {
     switch (v->kind) {
         case CL_VAL_STRING:
             return v->as.string_value;
         case CL_VAL_NUMBER: {
             char tmp[64];
-            cl_write_number_into(tmp, sizeof(tmp), v->as.number_value);
+            if (cl_format_number(tmp, sizeof(tmp), v->as.number_value) != 0) {
+                cl_eval_fail(ctx, line, col, "nao e possivel converter NaN ou infinito para string");
+                return NULL;
+            }
             return cl_arena_strdup_raw(&ctx->result->arena, tmp);
         }
         case CL_VAL_BOOL:
@@ -354,6 +350,30 @@ static int cl_eval_is_resolving(const cl_eval_resolving_t *stack, const void *ke
     return 0;
 }
 
+/* The value of label `index` of `block`: the stored text for a constant
+ * label, or its template evaluated now for a computed one. Labels are
+ * evaluated at the top level (no "for" scope). NULL, with ctx->failed set,
+ * on an evaluation error - including a label whose value depends on
+ * itself, e.g. `server "${server.x.port}" {}`. */
+static const char *cl_eval_label(cl_eval_ctx_t *ctx, const cl_block_t *block, size_t index) {
+    if (!block->label_exprs || !block->label_exprs[index]) {
+        return block->labels[index];
+    }
+    const cl_expr_t *label = block->label_exprs[index];
+    if (cl_eval_is_resolving(ctx->resolving, label)) {
+        cl_eval_fail(ctx, label->line, label->col, "referencia circular no rotulo do bloco '%s'", block->type);
+        return NULL;
+    }
+    cl_eval_resolving_t frame = {ctx->resolving, label};
+    ctx->resolving = &frame;
+    cl_value_t *v = cl_eval_expr(ctx, NULL, label);
+    ctx->resolving = frame.parent;
+    if (ctx->failed) {
+        return NULL;
+    }
+    return cl_val_require_string(ctx, v, label->line, label->col);
+}
+
 /* Block-root fallback of traversal resolution: finds a top-level block
  * typed `root_name` whose labels match a PREFIX of `steps`, consuming as
  * many leading CL_STEP_ATTR steps as that block declares labels. Blocks
@@ -364,11 +384,11 @@ static int cl_eval_is_resolving(const cl_eval_resolving_t *stack, const void *ke
  * 1-label block of the same type when both exist, instead of the 1-label
  * fallback silently winning by being tried first. Sets *out_label_count to
  * how many leading steps were consumed. */
-static cl_block_t *cl_eval_find_block_by_labels(cl_body_t *root_scope, const char *root_name,
+static cl_block_t *cl_eval_find_block_by_labels(cl_eval_ctx_t *ctx, const char *root_name,
                                                  const cl_traversal_step_t *steps, size_t step_count,
                                                  size_t *out_label_count) {
     cl_block_t **candidates = NULL;
-    size_t candidate_count = cl_body_find_blocks(root_scope, root_name, &candidates);
+    size_t candidate_count = cl_body_find_blocks(ctx->root_scope, root_name, &candidates);
 
     size_t max_labels = 0;
     for (size_t i = 0; i < candidate_count; i++) {
@@ -398,7 +418,12 @@ static cl_block_t *cl_eval_find_block_by_labels(cl_body_t *root_scope, const cha
             }
             int all_match = 1;
             for (size_t s = 0; s < n; s++) {
-                if (strcmp(candidates[i]->labels[s], steps[s].name) != 0) {
+                const char *label = cl_eval_label(ctx, candidates[i], s);
+                if (!label) {
+                    free(candidates); /* evaluation error, already reported */
+                    return NULL;
+                }
+                if (strcmp(label, steps[s].name) != 0) {
                     all_match = 0;
                     break;
                 }
@@ -448,8 +473,10 @@ static cl_value_t *cl_eval_traversal(cl_eval_ctx_t *ctx, const cl_eval_scope_t *
                 return NULL;
             }
             size_t consumed = 0;
-            cl_block_t *block = cl_eval_find_block_by_labels(ctx->root_scope, root_name, steps, step_count,
-                                                               &consumed);
+            cl_block_t *block = cl_eval_find_block_by_labels(ctx, root_name, steps, step_count, &consumed);
+            if (ctx->failed) {
+                return NULL;
+            }
             if (!block) {
                 cl_eval_fail(ctx, expr->line, expr->col, "referencia '%s.%s' nao encontrada", root_name,
                              steps[0].name);
@@ -859,11 +886,33 @@ static cl_value_t *cl_eval_expr(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scope
         case CL_EXPR_OBJECT: {
             cl_value_t *obj = cl_val_new_object(ctx);
             for (size_t i = 0; i < expr->as.object.count; i++) {
-                cl_value_t *v = cl_eval_expr(ctx, scope, expr->as.object.items[i].value);
+                const cl_object_item_t *item = &expr->as.object.items[i];
+                const char *key = item->key;
+                if (item->key_expr) {
+                    cl_value_t *k = cl_eval_expr(ctx, scope, item->key_expr);
+                    if (ctx->failed) {
+                        return NULL;
+                    }
+                    if (k->kind != CL_VAL_STRING && k->kind != CL_VAL_NUMBER && k->kind != CL_VAL_BOOL) {
+                        cl_eval_fail(ctx, item->key_expr->line, item->key_expr->col,
+                                     "chave de objeto precisa ser string, numero ou bool");
+                        return NULL;
+                    }
+                    key = cl_val_require_string(ctx, k, item->key_expr->line, item->key_expr->col);
+                    if (!key) {
+                        return NULL;
+                    }
+                }
+                if (cl_value_object_get(obj, key)) {
+                    const cl_expr_t *at = item->key_expr ? item->key_expr : item->value;
+                    cl_eval_fail(ctx, at->line, at->col, "chave '%s' duplicada em objeto", key);
+                    return NULL;
+                }
+                cl_value_t *v = cl_eval_expr(ctx, scope, item->value);
                 if (ctx->failed) {
                     return NULL;
                 }
-                cl_val_object_add(ctx, obj, expr->as.object.items[i].key, v);
+                cl_val_object_add(ctx, obj, key, v);
             }
             return obj;
         }
@@ -944,7 +993,11 @@ static cl_evaluated_body_t *cl_eval_build_body(cl_eval_ctx_t *ctx, const cl_body
             if (block->label_count > 0) {
                 eb->labels = cl_arena_alloc_raw(&ctx->result->arena, block->label_count * sizeof(char *));
                 for (size_t l = 0; l < block->label_count; l++) {
-                    eb->labels[l] = cl_arena_strdup_raw(&ctx->result->arena, block->labels[l]);
+                    const char *label = cl_eval_label(ctx, block, l);
+                    if (!label) {
+                        return NULL;
+                    }
+                    eb->labels[l] = cl_arena_strdup_raw(&ctx->result->arena, label);
                 }
             }
             eb->body = cl_eval_build_body(ctx, block->body, 0);
