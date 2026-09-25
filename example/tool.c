@@ -284,12 +284,22 @@ static cl_bindings_t *parse_bindings(int count, char **args) {
     return bindings;
 }
 
-static void try_evaluate(const char *path, const cl_bindings_t *bindings) {
+static void print_schema_error(const cl_error_t *err) {
+    printf("  erro de schema (linha %d, coluna %d): %s\n", err->line, err->col, err->message);
+}
+
+static void try_evaluate(const char *path, const cl_bindings_t *bindings, const cl_schema_t *schema) {
     cl_error_t err;
     printf("== evaluate: %s ==\n", path);
     cl_document_t *doc = cl_load_file(path, &err);
     if (!doc) {
         printf("  erro de parse (linha %d, coluna %d): %s\n", err.line, err.col, err.message);
+        return;
+    }
+    /* structure (and literal types) first, then evaluated types */
+    if (schema && cl_schema_validate(schema, doc, NULL, &err) != 0) {
+        print_schema_error(&err);
+        cl_document_free(doc);
         return;
     }
     cl_evaluated_t *result = cl_document_evaluate_with(doc, bindings, &err);
@@ -298,7 +308,11 @@ static void try_evaluate(const char *path, const cl_bindings_t *bindings) {
         cl_document_free(doc);
         return;
     }
-    dump_evaluated_body(cl_evaluated_root(result), 1);
+    if (schema && cl_schema_validate(schema, doc, result, &err) != 0) {
+        print_schema_error(&err);
+    } else {
+        dump_evaluated_body(cl_evaluated_root(result), 1);
+    }
     cl_evaluated_free(result);
     cl_document_free(doc);
 }
@@ -307,19 +321,43 @@ int main(int argc, char **argv) {
     printf("cllib version %s\n\n", cl_version());
 
     if (argc < 2) {
-        fprintf(stderr, "uso: %s <arquivo.cl> [nome=valor ...]\n", argv[0]);
+        fprintf(stderr, "uso: %s <arquivo.cl> [--schema=<schema.cl>] [nome=valor ...]\n", argv[0]);
         return 1;
     }
 
     const char *cl_file = argv[1];
-    cl_bindings_t *bindings = parse_bindings(argc - 2, argv + 2);
+    const char *schema_file = NULL;
+    char **binding_args = argv + 2;
+    int binding_count = 0;
+    for (int i = 2; i < argc; i++) {
+        if (strncmp(argv[i], "--schema=", 9) == 0) {
+            schema_file = argv[i] + 9;
+        } else {
+            binding_args[binding_count++] = argv[i];
+        }
+    }
+
+    cl_schema_t *schema = NULL;
+    if (schema_file) {
+        cl_error_t err;
+        schema = cl_schema_load_file(schema_file, &err);
+        if (!schema) {
+            fprintf(stderr, "schema invalido %s (linha %d, coluna %d): %s\n", schema_file, err.line, err.col,
+                    err.message);
+            return 1;
+        }
+    }
+
+    cl_bindings_t *bindings = parse_bindings(binding_count, binding_args);
     if (!bindings) {
+        cl_schema_free(schema);
         return 1;
     }
 
     try_load_and_dump(cl_file);
-    try_evaluate(cl_file, bindings);
+    try_evaluate(cl_file, bindings, schema);
 
     cl_bindings_free(bindings);
+    cl_schema_free(schema);
     return 0;
 }

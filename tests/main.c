@@ -8,6 +8,7 @@ void cl_test_run_navigate(void);
 void cl_test_run_writer(void);
 void cl_test_run_fixtures(void);
 void cl_test_run_bindings(void);
+void cl_test_run_schema(void);
 
 int main(int argc, char **argv) {
     const char *group = argc > 1 ? argv[1] : NULL;
@@ -29,6 +30,9 @@ int main(int argc, char **argv) {
     }
     if (!group || strcmp(group, "bindings") == 0) {
         cl_test_run_bindings();
+    }
+    if (!group || strcmp(group, "schema") == 0) {
+        cl_test_run_schema();
     }
 
     if (cl_test_failures > 0) {

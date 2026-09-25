@@ -427,8 +427,12 @@ static cl_expr_t *cl_parse_primary(cl_parser_state_t *state) {
         case CL_TOK_STRING:
         case CL_TOK_HEREDOC: {
             cl_advance_token(state);
+            /* where the template text itself starts: right after the opening
+             * quote, or at the start of the line after "<<MARKER" */
+            int text_line = tok->kind == CL_TOK_STRING ? tok->line : tok->line + 1;
+            int text_col = tok->kind == CL_TOK_STRING ? tok->col + 1 : 1;
             cl_error_t local_err = {0};
-            cl_expr_t *expr = cl_compile_template(state->doc, tok->text, tok->line, tok->col, &local_err);
+            cl_expr_t *expr = cl_compile_template(state->doc, tok->text, text_line, text_col, &local_err);
             if (!expr) {
                 state->failed = 1;
                 if (state->err) {
@@ -436,6 +440,9 @@ static cl_expr_t *cl_parse_primary(cl_parser_state_t *state) {
                 }
                 return NULL;
             }
+            /* the string/heredoc as a whole is still located at its token */
+            expr->line = tok->line;
+            expr->col = tok->col;
             return expr;
         }
         case CL_TOK_NUMBER:
@@ -810,12 +817,24 @@ cl_expr_t *cl_parser_parse_expr_string(cl_document_t *doc, const char *expr_text
         return NULL;
     }
 
+    /* `expr_text` was cut out of a larger source (a "${...}" span of a
+     * template), so its tokens are positioned relative to that span. Map
+     * them back to where the span sits in the file before parsing, so every
+     * AST node - and every parse or evaluation error that reports one -
+     * points at the real line/column. */
+    for (size_t i = 0; i < token_count; i++) {
+        if (tokens[i].line == 1) {
+            tokens[i].col = base_col + (tokens[i].col - 1);
+        }
+        tokens[i].line = base_line + (tokens[i].line - 1);
+    }
+
     cl_parser_state_t state = {0};
     state.doc = doc;
     state.toks = tokens;
     state.count = token_count;
     state.pos = 0;
-    state.err = &local_err;
+    state.err = err;
     state.failed = 0;
 
     cl_expr_t *expr = cl_parse_expr(&state);
@@ -825,14 +844,6 @@ cl_expr_t *cl_parser_parse_expr_string(cl_document_t *doc, const char *expr_text
     free(tokens);
 
     if (state.failed) {
-        if (err) {
-            *err = local_err;
-            int sub_line = err->line;
-            err->line = base_line + (sub_line - 1);
-            if (sub_line == 1) {
-                err->col = base_col + (err->col - 1);
-            }
-        }
         return NULL;
     }
     return expr;

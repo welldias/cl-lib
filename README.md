@@ -56,8 +56,8 @@ cmake --build build-asan
 ctest --test-dir build
 ```
 
-This runs the `cl_tests` suite (in `tests/`) as 6 named CTest cases:
-`parser`, `eval`, `navigate`, `writer`, `fixtures`, and `bindings`.
+This runs the `cl_tests` suite (in `tests/`) as 7 named CTest cases:
+`parser`, `eval`, `navigate`, `writer`, `fixtures`, `bindings`, and `schema`.
 
 ## Quick start
 
@@ -294,6 +294,84 @@ bools, numeric text becomes a number, anything else a string):
 ./build/example/cl_tool deploy.cl env=prod replicas=6 build_id=a1b2c3
 ```
 
+## Block schemas
+
+The language never decides whether a block type "exists" or which
+arguments it may hold. A **schema** lets the host program decide that for
+the block types it cares about, and have `cl` check documents against it.
+Validation is a separate, explicit step: loading and evaluating work
+exactly as before.
+
+A schema can be written as a `.cl` file (see
+`cl/schema/machine.schema.cl`):
+
+```hcl
+strict = true                     # optional: unregistered top-level block types are errors
+
+block "machine" {
+  cpu    = { type = "number", required = true }
+  memory = { type = "string", required = true }
+  tags   = "list"                 # short form: just the type, optional
+
+  block "disk" {                  # sub-block allowed inside "machine"
+    size = { type = "number", required = true }
+    kind = ["ssd", "hdd", "nvme"]   # enum: one of these strings, optional
+  }
+}
+```
+
+or built in C:
+
+```c
+cl_schema_t *schema = cl_schema_new();
+cl_schema_block_t *machine = cl_schema_add_block(schema, "machine");
+cl_schema_block_add_attr(machine, "cpu", CL_TYPE_NUMBER, 1);    /* required */
+cl_schema_block_add_attr(machine, "tags", CL_TYPE_LIST, 0);     /* optional */
+cl_schema_block_t *disk = cl_schema_block_add_block(machine, "disk");
+cl_schema_block_add_attr(disk, "size", CL_TYPE_NUMBER, 1);
+static const char *kinds[] = {"ssd", "hdd", "nvme"};
+cl_schema_block_add_enum(disk, "kind", kinds, 3, 0);            /* enum */
+```
+
+Then validate. Pass the document alone to check structure (and the types
+of literal values), and pass the evaluated result as well to check the
+type of every evaluated value:
+
+```c
+if (cl_schema_validate(schema, doc, NULL, &err) != 0) { /* ... */ }
+cl_evaluated_t *result = cl_document_evaluate(doc, &err);
+if (cl_schema_validate(schema, doc, result, &err) != 0) { /* ... */ }
+```
+
+Rules:
+
+- Rules match **top-level blocks by type**. Labels are not checked, so
+  `machine "web" {}` and `machine {}` use the same rule.
+- Inside a registered block everything is closed. Only declared attributes
+  may appear, each at most once, and required ones must be present. Only
+  declared sub-blocks may appear, and each is checked with its own rules.
+- Types are `any`, `string`, `number`, `bool`, `list` and `object`. Only
+  `any` accepts `null`.
+- An **enum** is a string attribute restricted to a fixed set of values.
+  It is written as a list of strings (`kind = ["ssd", "hdd"]`), or as
+  `{ type = "string", required = true, values = [...] }` when it is
+  required. Matching is exact and case-sensitive. Enums hold strings only.
+- Without a result, a type or enum value is only checked when the value is a literal. An
+  expression like `cpu = base * 2` is checked once you pass the result,
+  and so are values injected through bindings.
+- Top-level blocks of an unregistered type are ignored, unless the schema
+  is `strict`. Top-level attributes are never checked.
+- Validation stops at the first problem and reports its line and column,
+  for example `atributo 'gpu' nao permitido em bloco 'machine'`.
+- `block` and `strict` belong to the schema file format only. Ordinary
+  documents still have no special names.
+
+`cl_tool` validates when given a schema file:
+
+```sh
+./build/example/cl_tool cl/schema/machine.cl --schema=cl/schema/machine.schema.cl
+```
+
 ## Built-in functions
 
 | Function            | Behavior                                                                 |
@@ -319,9 +397,11 @@ include/cl/cl.h   the entire public API
 src/               implementation, one concern per file (lexer, parser,
                    evaluator, navigation, mutation, writer, ...)
 example/           cl_example (dumps every cl/*.cl fixture) and
-                   cl_tool <file.cl> [name=value ...] (dumps one file you pass in)
+                   cl_tool <file.cl> [--schema=<schema.cl>] [name=value ...]
+                   (dumps one file you pass in)
 tests/             the CTest suite
 cl/                .cl fixture files used by the examples and tests
+                   (cl/schema/: the block schema example)
 ```
 
 ## License

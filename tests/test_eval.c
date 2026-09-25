@@ -533,6 +533,53 @@ static void test_dynamic_index_errors(void) {
     check_eval_error("zones = [1, 2]\na = zones[a]\nx = a\n", "circular");
 }
 
+/* Expressions inside "${...}"/"%{...}" are re-parsed from a substring, but
+ * errors about them must still point at their real place in the file. */
+static void test_template_errors_report_real_position(void) {
+    static const struct {
+        const char *source;
+        int line;
+        int col;
+    } cases[] = {
+        {"a = 1\nservice \"api\" {\n  name = \"api-${env}\"\n}\n", 3, 17},
+        {"x = \"${1} and ${missing}\"\n", 1, 17},
+        {"x = <<EOF\nline one\n  ${nope}\nEOF\n", 3, 5},
+        {"x = \"${upper(\"a ${nope}\")}\"\n", 1, 19},
+        {"x = <<EOF\n%{if 1}\nyes\n%{endif}\nEOF\n", 2, 6},
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        cl_error_t err;
+        cl_document_t *doc = cl_load_string(cases[i].source, "template_position", &err);
+        CL_CHECK(doc != NULL);
+        if (!doc) {
+            continue;
+        }
+        cl_evaluated_t *result = cl_document_evaluate(doc, &err);
+        CL_CHECK(result == NULL);
+        if (!result) {
+            CL_CHECK(err.line == cases[i].line && err.col == cases[i].col);
+            if (err.line != cases[i].line || err.col != cases[i].col) {
+                fprintf(stderr, "  case %zu: got %d:%d, expected %d:%d\n", i, err.line, err.col, cases[i].line,
+                        cases[i].col);
+            }
+        } else {
+            cl_evaluated_free(result);
+        }
+        cl_document_free(doc);
+    }
+
+    /* parse errors inside a template use the same mapping */
+    cl_error_t err;
+    cl_document_t *bad = cl_load_string("x = \"${1 +}\"\n", "template_parse_position", &err);
+    CL_CHECK(bad == NULL);
+    if (!bad) {
+        CL_CHECK(err.line == 1 && err.col == 11);
+    } else {
+        cl_document_free(bad);
+    }
+}
+
 void cl_test_run_eval(void) {
     test_attribute_form_resolves_traversal();
     test_unlabeled_block_form_does_not_resolve_traversal();
@@ -548,4 +595,5 @@ void cl_test_run_eval(void) {
     test_template_without_trim_markers_keeps_whitespace();
     test_dynamic_index_evaluates();
     test_dynamic_index_errors();
+    test_template_errors_report_real_position();
 }

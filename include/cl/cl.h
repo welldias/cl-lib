@@ -472,6 +472,74 @@ const char *cl_value_object_key_at(const cl_value_t *value, size_t index);
 cl_value_t *cl_value_object_value_at(const cl_value_t *value, size_t index);
 cl_value_t *cl_value_object_get(const cl_value_t *value, const char *key);
 
+/* ------------------------------------------------------------------ */
+/* Schemas (opt-in validation of specialized block types)               */
+/* ------------------------------------------------------------------ */
+
+/* A schema lets the host program give meaning to block types it cares
+ * about - e.g. a "machine" block that may only hold "cpu" and "memory" -
+ * while the language itself stays agnostic. Rules match top-level blocks
+ * by type (labels are not checked). Inside a registered block everything is
+ * closed: only declared attributes and declared sub-blocks may appear, each
+ * attribute at most once, and required attributes must be present.
+ * Top-level blocks of an unregistered type are ignored, unless the schema
+ * is strict, in which case they are an error. Top-level attributes are
+ * never checked. */
+typedef enum cl_schema_type {
+    CL_TYPE_ANY, /* the only type that accepts null */
+    CL_TYPE_STRING,
+    CL_TYPE_NUMBER,
+    CL_TYPE_BOOL,
+    CL_TYPE_LIST,
+    CL_TYPE_OBJECT
+} cl_schema_type_t;
+
+typedef struct cl_schema cl_schema_t;
+typedef struct cl_schema_block cl_schema_block_t;
+
+cl_schema_t *cl_schema_new(void);
+void cl_schema_free(cl_schema_t *schema);
+void cl_schema_set_strict(cl_schema_t *schema, int strict);
+
+/* Register a block type at the top level, or as a sub-block allowed inside
+ * `parent`. Return NULL when that type is already registered at that level.
+ * The returned rule stays valid until cl_schema_free(). */
+cl_schema_block_t *cl_schema_add_block(cl_schema_t *schema, const char *type);
+cl_schema_block_t *cl_schema_block_add_block(cl_schema_block_t *parent, const char *type);
+
+/* Declares an attribute allowed inside `block`. Returns -1 when `name` is
+ * already declared there (or on a NULL argument), 0 otherwise. */
+int cl_schema_block_add_attr(cl_schema_block_t *block, const char *name, cl_schema_type_t type, int required);
+
+/* Declares a string attribute that may only hold one of `values` (an
+ * enum). Returns -1 when `name` is already declared, `count` is 0, or
+ * `values` holds a NULL or repeated entry; 0 otherwise. */
+int cl_schema_block_add_enum(cl_schema_block_t *block, const char *name, const char *const *values, size_t count,
+                             int required);
+
+/* Checks `doc` against `schema`. With `result` == NULL, attribute types are
+ * only checked for literal values ("x", 1, true, [...], {...}); pass the
+ * cl_evaluated_t of this same document to check every value's evaluated
+ * type too. Returns 0 when valid; otherwise -1 with the first problem found
+ * (and its line/column in `doc`) in *err. */
+int cl_schema_validate(const cl_schema_t *schema, const cl_document_t *doc, const cl_evaluated_t *result,
+                       cl_error_t *err);
+
+/* Builds a schema from a .cl schema file - see README.md, "Block schemas":
+ *
+ *     strict = true                    # optional
+ *     block "machine" {
+ *       cpu  = { type = "number", required = true }
+ *       tags = "list"                  # short form: type only
+ *       kind = ["ssd", "hdd"]          # short form: enum of strings
+ *       block "disk" { size = "number" }
+ *     }
+ *
+ * "block" and "strict" are vocabulary of this schema format only, not of
+ * the language. Returns NULL with the error in *err on an invalid file. */
+cl_schema_t *cl_schema_load_file(const char *path, cl_error_t *err);
+cl_schema_t *cl_schema_load_string(const char *source, const char *source_name, cl_error_t *err);
+
 #ifdef __cplusplus
 }
 #endif
