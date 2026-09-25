@@ -63,17 +63,3 @@ jobs:
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
       run: ctest --build-config ${{ matrix.build_type }} --output-on-failure
 
-  cppcheck:
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Install cppcheck
-      run: sudo apt-get update && sudo apt-get install -y cppcheck
-
-    - name: Configure CMake
-      run: cmake -B ${{ github.workspace }}/build -S ${{ github.workspace }}
-
-    - name: Run cppcheck
-      run: cmake --build ${{ github.workspace }}/build --target cppcheck

@@ -5,6 +5,8 @@
   Run through CMake (see the cppcheck target in CMakeLists.txt):
       cmake --build build --target cppcheck
 
+  which writes the findings to build/cppcheck-report.txt,
+
   or directly from the repository root:
       mkdir -p build/cppcheck
       cppcheck --project=cl.cppcheck --std=c99 \

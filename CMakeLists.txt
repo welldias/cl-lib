@@ -45,6 +45,7 @@ endif()
 
 # Static analysis: `cmake --build <dir> --target cppcheck`. Settings live in
 # cl.cppcheck; only options the project file cannot hold are passed here.
+# Findings are written as plain text to <dir>/cppcheck-report.txt.
 find_program(CL_CPPCHECK_EXECUTABLE cppcheck)
 
 if(CL_CPPCHECK_EXECUTABLE)
@@ -64,8 +65,9 @@ if(CL_CPPCHECK_EXECUTABLE)
             --error-exitcode=1
             -j${CL_CPPCHECK_JOBS}
             -q
+            --output-file=${CMAKE_BINARY_DIR}/cppcheck-report.txt
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        COMMENT "Running cppcheck"
+        COMMENT "Running cppcheck (report: ${CMAKE_BINARY_DIR}/cppcheck-report.txt)"
         VERBATIM
     )
 endif()
