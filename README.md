@@ -60,7 +60,7 @@ cl can be pulled in with `FetchContent` (or `add_subdirectory`):
 include(FetchContent)
 FetchContent_Declare(cl
     GIT_REPOSITORY https://github.com/welldias/cl-lib.git
-    GIT_TAG        main
+    GIT_TAG        0.4.0
 )
 FetchContent_MakeAvailable(cl)
 
