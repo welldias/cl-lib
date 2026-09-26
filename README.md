@@ -407,6 +407,10 @@ path = "/posts/${slug(title)}"
   while evaluating. Callbacks only run inside `cl_document_evaluate_with()`,
   so the bindings can still be freed as soon as it returns.
 
+`example/callbacks.c` (`./build/bin/cl_callbacks_example`) walks through
+all of this: variadic functions, building lists and objects, `userdata`,
+`cl_call_copy()`, errors and replacing a built-in.
+
 ## Block schemas
 
 The language never decides whether a block type "exists" or which
@@ -484,6 +488,10 @@ Rules:
 ```sh
 ./build/bin/cl_tool cl/schema/machine.cl --schema=cl/schema/machine.schema.cl
 ```
+
+`example/schema.c` (`./build/bin/cl_schema_example`) builds the same schema
+in C and from text, validates a document in both passes, and shows the
+error reported for each kind of broken rule.
 
 ## Reading values
 
@@ -759,7 +767,9 @@ src/               implementation, one concern per file (lexer, parser,
 example/           cl_example (dumps every cl/*.cl fixture) and
                    cl_tool <file.cl> [--schema=<schema.cl>] [--json]
                    [--get=<path>] [name=value ...] (dumps or exports
-                   one file you pass in)
+                   one file you pass in), plus two self-contained
+                   walkthroughs: cl_schema_example (block schemas) and
+                   cl_callbacks_example (host functions)
 tests/             the CTest suite
 cl/                .cl fixture files used by the examples and tests
                    (cl/schema/: the block schema example)
