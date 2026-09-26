@@ -20,7 +20,7 @@ static void dump_object(const cl_expr_t *expr, int indent) {
     for (size_t i = 0; i < count; i++) {
         print_indent(indent + 1);
         const char *key = cl_expr_object_key_at(expr, i);
-        printf("%s = ", key ? key : "<chave calculada>");
+        printf("%s = ", key ? key : "<computed key>");
         dump_expr(cl_expr_object_value_at(expr, i), indent + 1);
     }
     print_indent(indent);
@@ -171,7 +171,7 @@ static void dump_body(const cl_body_t *body, int indent) {
                 if (block->labels[l]) {
                     printf(" \"%s\"", block->labels[l]);
                 } else {
-                    printf(" <rotulo calculado>");
+                    printf(" <computed label>");
                 }
             }
             printf(" {\n");
@@ -252,7 +252,7 @@ static void try_load_and_dump(const char *path) {
     printf("== load: %s ==\n", path);
     cl_document_t *doc = cl_load_file(path, &err);
     if (!doc) {
-        printf("  erro de parse (linha %d, coluna %d): %s\n", err.line, err.col, err.message);
+        printf("  parse error (line %d, column %d): %s\n", err.line, err.col, err.message);
         return;
     }
     dump_body(cl_document_root(doc), 1);
@@ -264,12 +264,12 @@ static void try_evaluate(const char *path) {
     printf("== evaluate: %s ==\n", path);
     cl_document_t *doc = cl_load_file(path, &err);
     if (!doc) {
-        printf("  erro de parse (linha %d, coluna %d): %s\n", err.line, err.col, err.message);
+        printf("  parse error (line %d, column %d): %s\n", err.line, err.col, err.message);
         return;
     }
     cl_evaluated_t *result = cl_document_evaluate(doc, &err);
     if (!result) {
-        printf("  erro de avaliacao (linha %d, coluna %d): %s\n", err.line, err.col, err.message);
+        printf("  evaluation error (line %d, column %d): %s\n", err.line, err.col, err.message);
         cl_document_free(doc);
         return;
     }

@@ -22,7 +22,7 @@ static void dump_object(const cl_expr_t *expr, int indent) {
     for (size_t i = 0; i < count; i++) {
         print_indent(indent + 1);
         const char *key = cl_expr_object_key_at(expr, i);
-        printf("%s = ", key ? key : "<chave calculada>");
+        printf("%s = ", key ? key : "<computed key>");
         dump_expr(cl_expr_object_value_at(expr, i), indent + 1);
     }
     print_indent(indent);
@@ -173,7 +173,7 @@ static void dump_body(const cl_body_t *body, int indent) {
                 if (block->labels[l]) {
                     printf(" \"%s\"", block->labels[l]);
                 } else {
-                    printf(" <rotulo calculado>");
+                    printf(" <computed label>");
                 }
             }
             printf(" {\n");
@@ -254,7 +254,7 @@ static void try_load_and_dump(const char *path) {
     printf("== load: %s ==\n", path);
     cl_document_t *doc = cl_load_file(path, &err);
     if (!doc) {
-        printf("  erro de parse (linha %d, coluna %d): %s\n", err.line, err.col, err.message);
+        printf("  parse error (line %d, column %d): %s\n", err.line, err.col, err.message);
         return;
     }
     dump_body(cl_document_root(doc), 1);
@@ -269,7 +269,7 @@ static cl_bindings_t *parse_bindings(int count, char **args) {
     for (int i = 0; i < count; i++) {
         char *eq = strchr(args[i], '=');
         if (!eq || eq == args[i]) {
-            fprintf(stderr, "binding invalido '%s' (esperado nome=valor)\n", args[i]);
+            fprintf(stderr, "invalid binding '%s' (expected name=value)\n", args[i]);
             cl_bindings_free(bindings);
             return NULL;
         }
@@ -290,7 +290,7 @@ static cl_bindings_t *parse_bindings(int count, char **args) {
 }
 
 static void print_schema_error(const cl_error_t *err) {
-    printf("  erro de schema (linha %d, coluna %d): %s\n", err->line, err->col, err->message);
+    printf("  schema error (line %d, column %d): %s\n", err->line, err->col, err->message);
 }
 
 static void try_evaluate(const char *path, const cl_bindings_t *bindings, const cl_schema_t *schema) {
@@ -298,7 +298,7 @@ static void try_evaluate(const char *path, const cl_bindings_t *bindings, const 
     printf("== evaluate: %s ==\n", path);
     cl_document_t *doc = cl_load_file(path, &err);
     if (!doc) {
-        printf("  erro de parse (linha %d, coluna %d): %s\n", err.line, err.col, err.message);
+        printf("  parse error (line %d, column %d): %s\n", err.line, err.col, err.message);
         return;
     }
     /* structure (and literal types) first, then evaluated types */
@@ -309,7 +309,7 @@ static void try_evaluate(const char *path, const cl_bindings_t *bindings, const 
     }
     cl_evaluated_t *result = cl_document_evaluate_with(doc, bindings, &err);
     if (!result) {
-        printf("  erro de avaliacao (linha %d, coluna %d): %s\n", err.line, err.col, err.message);
+        printf("  evaluation error (line %d, column %d): %s\n", err.line, err.col, err.message);
         cl_document_free(doc);
         return;
     }
@@ -329,24 +329,24 @@ static int run_export(const char *path, const cl_bindings_t *bindings, const cl_
     cl_error_t err;
     cl_document_t *doc = cl_load_file(path, &err);
     if (!doc) {
-        fprintf(stderr, "%s: erro de parse (linha %d, coluna %d): %s\n", path, err.line, err.col, err.message);
+        fprintf(stderr, "%s: parse error (line %d, column %d): %s\n", path, err.line, err.col, err.message);
         return 1;
     }
     if (schema && cl_schema_validate(schema, doc, NULL, &err) != 0) {
-        fprintf(stderr, "%s: erro de schema (linha %d, coluna %d): %s\n", path, err.line, err.col, err.message);
+        fprintf(stderr, "%s: schema error (line %d, column %d): %s\n", path, err.line, err.col, err.message);
         cl_document_free(doc);
         return 1;
     }
     cl_evaluated_t *result = cl_document_evaluate_with(doc, bindings, &err);
     if (!result) {
-        fprintf(stderr, "%s: erro de avaliacao (linha %d, coluna %d): %s\n", path, err.line, err.col,
+        fprintf(stderr, "%s: evaluation error (line %d, column %d): %s\n", path, err.line, err.col,
                 err.message);
         cl_document_free(doc);
         return 1;
     }
     int status = 0;
     if (schema && cl_schema_validate(schema, doc, result, &err) != 0) {
-        fprintf(stderr, "%s: erro de schema (linha %d, coluna %d): %s\n", path, err.line, err.col, err.message);
+        fprintf(stderr, "%s: schema error (line %d, column %d): %s\n", path, err.line, err.col, err.message);
         status = 1;
     } else if (!get_path) {
         char *text = cl_evaluated_to_json(result);
@@ -364,7 +364,7 @@ static int run_export(const char *path, const cl_bindings_t *bindings, const cl_
             text = json ? cl_value_to_json(value) : cl_value_to_string(value);
             printf("%s\n", text);
         } else {
-            fprintf(stderr, "%s: '%s' nao definido\n", path, get_path);
+            fprintf(stderr, "%s: '%s' is not defined\n", path, get_path);
             status = 1;
         }
         free(text);
@@ -376,7 +376,7 @@ static int run_export(const char *path, const cl_bindings_t *bindings, const cl_
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        fprintf(stderr, "uso: %s <arquivo.cl> [--schema=<schema.cl>] [--json] [--get=<caminho>] [nome=valor ...]\n",
+        fprintf(stderr, "usage: %s <file.cl> [--schema=<schema.cl>] [--json] [--get=<path>] [name=value ...]\n",
                 argv[0]);
         return 1;
     }
@@ -404,7 +404,7 @@ int main(int argc, char **argv) {
         cl_error_t err;
         schema = cl_schema_load_file(schema_file, &err);
         if (!schema) {
-            fprintf(stderr, "schema invalido %s (linha %d, coluna %d): %s\n", schema_file, err.line, err.col,
+            fprintf(stderr, "invalid schema %s (line %d, column %d): %s\n", schema_file, err.line, err.col,
                     err.message);
             return 1;
         }

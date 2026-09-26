@@ -1,6 +1,6 @@
-# Este arquivo demonstra a resolucao agnostica de traversals da lib cl:
-# "var" e "service" aqui sao apenas nomes literais de topo, sem nenhum
-# significado especial (ao contrario do HCL/Terraform).
+# This file shows the cl library's name-agnostic traversal resolution:
+# "var" and "service" here are just plain top-level names, with no special
+# meaning (unlike HCL/Terraform).
 
 var = {
   name = "Cloud"

@@ -137,7 +137,7 @@ static char *cl_tpl_extract_span(cl_tpl_scanner_t *s, cl_error_t *err) {
         int c = cl_tpl_peek(s, 0);
         if (c == '\0') {
             if (err) {
-                snprintf(err->message, sizeof(err->message), "esperado '}' para fechar a expressao");
+                snprintf(err->message, sizeof(err->message), "expected '}' to close the expression");
                 err->line = s->line;
                 err->col = s->col;
             }
@@ -322,7 +322,7 @@ cl_expr_t *cl_compile_template(cl_document_t *doc, const char *raw, int base_lin
             if (!span) {
                 free(literal.data);
                 free(stack.items);
-                cl_tpl_fail(&sub_err, err, expr_line, expr_col, "expressao invalida");
+                cl_tpl_fail(&sub_err, err, expr_line, expr_col, "invalid expression");
                 return NULL;
             }
             int trim_right = cl_tpl_strip_trailing_tilde(span);
@@ -330,7 +330,7 @@ cl_expr_t *cl_compile_template(cl_document_t *doc, const char *raw, int base_lin
             if (!expr) {
                 free(literal.data);
                 free(stack.items);
-                cl_tpl_fail(&sub_err, err, expr_line, expr_col, "expressao invalida");
+                cl_tpl_fail(&sub_err, err, expr_line, expr_col, "invalid expression");
                 return NULL;
             }
             cl_template_add_interp(doc, cl_tpl_current_target(root, &stack), expr);
@@ -358,7 +358,7 @@ cl_expr_t *cl_compile_template(cl_document_t *doc, const char *raw, int base_lin
                 free(literal.data);
                 free(stack.items);
                 if (err) {
-                    snprintf(err->message, sizeof(err->message), "diretiva de template invalida");
+                    snprintf(err->message, sizeof(err->message), "invalid template directive");
                     err->line = dir_line;
                     err->col = dir_col;
                 }
@@ -374,7 +374,7 @@ cl_expr_t *cl_compile_template(cl_document_t *doc, const char *raw, int base_lin
                 if (!span) {
                     free(literal.data);
                     free(stack.items);
-                    cl_tpl_fail(&sub_err, err, cond_line, cond_col, "condicao invalida em %{if}");
+                    cl_tpl_fail(&sub_err, err, cond_line, cond_col, "invalid condition in %{if}");
                     return NULL;
                 }
                 int trim_right = cl_tpl_strip_trailing_tilde(span);
@@ -382,7 +382,7 @@ cl_expr_t *cl_compile_template(cl_document_t *doc, const char *raw, int base_lin
                 if (!cond) {
                     free(literal.data);
                     free(stack.items);
-                    cl_tpl_fail(&sub_err, err, cond_line, cond_col, "condicao invalida em %{if}");
+                    cl_tpl_fail(&sub_err, err, cond_line, cond_col, "invalid condition in %{if}");
                     return NULL;
                 }
                 cl_tpl_frame_t frame = {0};
@@ -401,7 +401,7 @@ cl_expr_t *cl_compile_template(cl_document_t *doc, const char *raw, int base_lin
                     free(literal.data);
                     free(stack.items);
                     if (err) {
-                        snprintf(err->message, sizeof(err->message), "%%{else} nao aceita expressao");
+                        snprintf(err->message, sizeof(err->message), "%%{else} takes no expression");
                         err->line = s.line;
                         err->col = s.col;
                     }
@@ -412,7 +412,7 @@ cl_expr_t *cl_compile_template(cl_document_t *doc, const char *raw, int base_lin
                     free(literal.data);
                     free(stack.items);
                     if (err) {
-                        snprintf(err->message, sizeof(err->message), "%%{else} inesperado");
+                        snprintf(err->message, sizeof(err->message), "unexpected %%{else}");
                         err->line = dir_line;
                         err->col = dir_col;
                     }
@@ -437,7 +437,7 @@ cl_expr_t *cl_compile_template(cl_document_t *doc, const char *raw, int base_lin
                     free(literal.data);
                     free(stack.items);
                     if (err) {
-                        snprintf(err->message, sizeof(err->message), "%%{endif} inesperado");
+                        snprintf(err->message, sizeof(err->message), "unexpected %%{endif}");
                         err->line = dir_line;
                         err->col = dir_col;
                     }
@@ -454,7 +454,7 @@ cl_expr_t *cl_compile_template(cl_document_t *doc, const char *raw, int base_lin
                     free(literal.data);
                     free(stack.items);
                     if (err) {
-                        snprintf(err->message, sizeof(err->message), "esperado variavel em %%{for}");
+                        snprintf(err->message, sizeof(err->message), "expected variable in %%{for}");
                         err->line = s.line;
                         err->col = s.col;
                     }
@@ -472,7 +472,7 @@ cl_expr_t *cl_compile_template(cl_document_t *doc, const char *raw, int base_lin
                         free(literal.data);
                         free(stack.items);
                         if (err) {
-                            snprintf(err->message, sizeof(err->message), "esperado segunda variavel em %%{for}");
+                            snprintf(err->message, sizeof(err->message), "expected second variable in %%{for}");
                             err->line = s.line;
                             err->col = s.col;
                         }
@@ -490,7 +490,7 @@ cl_expr_t *cl_compile_template(cl_document_t *doc, const char *raw, int base_lin
                     free(literal.data);
                     free(stack.items);
                     if (err) {
-                        snprintf(err->message, sizeof(err->message), "esperado 'in' em %%{for}");
+                        snprintf(err->message, sizeof(err->message), "expected 'in' in %%{for}");
                         err->line = s.line;
                         err->col = s.col;
                     }
@@ -506,7 +506,7 @@ cl_expr_t *cl_compile_template(cl_document_t *doc, const char *raw, int base_lin
                     free(val_var);
                     free(literal.data);
                     free(stack.items);
-                    cl_tpl_fail(&sub_err, err, coll_line, coll_col, "colecao invalida em %{for}");
+                    cl_tpl_fail(&sub_err, err, coll_line, coll_col, "invalid collection in %{for}");
                     return NULL;
                 }
                 int trim_right = cl_tpl_strip_trailing_tilde(span);
@@ -516,7 +516,7 @@ cl_expr_t *cl_compile_template(cl_document_t *doc, const char *raw, int base_lin
                     free(val_var);
                     free(literal.data);
                     free(stack.items);
-                    cl_tpl_fail(&sub_err, err, coll_line, coll_col, "colecao invalida em %{for}");
+                    cl_tpl_fail(&sub_err, err, coll_line, coll_col, "invalid collection in %{for}");
                     return NULL;
                 }
                 cl_tpl_frame_t frame = {0};
@@ -545,7 +545,7 @@ cl_expr_t *cl_compile_template(cl_document_t *doc, const char *raw, int base_lin
                     free(literal.data);
                     free(stack.items);
                     if (err) {
-                        snprintf(err->message, sizeof(err->message), "%%{endfor} inesperado");
+                        snprintf(err->message, sizeof(err->message), "unexpected %%{endfor}");
                         err->line = dir_line;
                         err->col = dir_col;
                     }
@@ -558,7 +558,7 @@ cl_expr_t *cl_compile_template(cl_document_t *doc, const char *raw, int base_lin
                 free(frame.for_val_var);
             } else {
                 if (err) {
-                    snprintf(err->message, sizeof(err->message), "diretiva de template desconhecida: %%{%s}",
+                    snprintf(err->message, sizeof(err->message), "unknown template directive: %%{%s}",
                              keyword);
                     err->line = dir_line;
                     err->col = dir_col;
@@ -581,7 +581,7 @@ cl_expr_t *cl_compile_template(cl_document_t *doc, const char *raw, int base_lin
     if (stack.count > 0) {
         free(stack.items);
         if (err) {
-            snprintf(err->message, sizeof(err->message), "%s sem fechamento",
+            snprintf(err->message, sizeof(err->message), "unterminated %s",
                      stack.items[stack.count - 1].is_for ? "%{for}" : "%{if}");
             err->line = base_line;
             err->col = base_col;

@@ -1,6 +1,6 @@
-# "aws_instance" aqui e o proprio type do bloco de topo (nao um label
-# dentro de um bloco "resource" como no Terraform) - e o que a resolucao
-# agnostica da lib cl exige para "aws_instance.app_server.*" resolver.
+# "aws_instance" here is the top-level block's own type (not a label
+# inside a "resource" block as in Terraform) - that is what the cl library's
+# name-agnostic resolution needs for "aws_instance.app_server.*" to resolve.
 aws_instance "app_server" {
   id        = "i-0abcd1234ef567890"
   public_ip = "203.0.113.42"
@@ -8,16 +8,16 @@ aws_instance "app_server" {
 }
 
 output "instance_id" {
-  description = "O ID da instância EC2 criada"
+  description = "ID of the created EC2 instance"
   value       = aws_instance.app_server.id
 }
 
 output "instance_public_ip" {
-  description = "O IP público da instância para acesso externo"
+  description = "Public IP of the instance for external access"
   value       = aws_instance.app_server.public_ip
 }
 
 output "instance_arn" {
-  description = "O Amazon Resource Name (ARN) da instância"
+  description = "Amazon Resource Name (ARN) of the instance"
   value       = aws_instance.app_server.arn
 }

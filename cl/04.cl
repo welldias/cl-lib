@@ -9,7 +9,7 @@ var = {
 
 enable_monitoring = true
 
-# 1. Bloco de Configuração do Terraform
+# 1. Terraform settings block
 terraform {
   required_version = ">= 1.5.0"
 
@@ -21,39 +21,39 @@ terraform {
   }
 }
 
-# 2. Configuração do Provider
+# 2. Provider settings
 provider "aws" {
   region = var.aws_region
   enable = enable_monitoring
 }
 
-# 3. Definição de Variáveis
+# 3. Variable definitions
 variable "aws_region" {
-  description = "Região da AWS onde os recursos serão criados"
+  description = "AWS region where the resources will be created"
   type        = "string"
   default     = "us-east-1"
 }
 
 variable "instance_name" {
-  description = "Valor para a tag Name da instância"
+  description = "Value for the instance's Name tag"
   #type        = string
-  default     = "Servidor-Producao-01"
+  default     = "Production-Server-01"
 }
 
-# 4. Recurso: Criação de uma Instância EC2
+# 4. Resource: creating an EC2 instance
 resource "aws_instance" {
-  ami           = "ami-0c55b159cbfafe1f0" # Exemplo de ID de imagem (Ubuntu)
+  ami           = "ami-0c55b159cbfafe1f0" # Example image ID (Ubuntu)
   instance_type = "t2.micro"
 
   tags = {
     Name        = variable.instance_name
     Environment = "Dev"
-    Project     = "Modernizacao-TI"
+    Project     = "IT-Modernization"
   }
 }
 
-# 5. Output: Informação exibida após o 'terraform apply'
+# 5. Output: information shown after 'terraform apply'
 output "instance_public_ip" {
-  description = "O endereço IP público da instância criada"
+  description = "Public IP address of the created instance"
   value       = resource.aws_instance.ami
 }

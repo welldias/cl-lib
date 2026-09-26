@@ -9,17 +9,17 @@
 
 /* Expected outcome of cl_document_evaluate() for each shipped fixture,
  * verified by hand against the current contents of the fixtures below.
- * 01.cl, 02.cl and 07.cl are *supposed* to fail: they use undefined
- * top-level references (01/07: "var.*" with no "var" declared anywhere;
- * 02: a bareword "type = string", which this agnostic engine resolves as a
- * reference to a nonexistent identifier "string", not a type keyword). */
+ * 01.cl and 07.cl are *supposed* to fail: they use "var.*" with no "var"
+ * declared anywhere. (02.cl writes its types quoted, "type = "string"",
+ * since a bareword "string" would be a reference to a nonexistent
+ * identifier in this agnostic engine, not a type keyword.) */
 typedef struct {
     const char *file;
     int expect_eval_ok;
 } fixture_case_t;
 
 static const fixture_case_t kFixtures[] = {
-    {"00.cl", 1}, {"01.cl", 0}, {"02.cl", 0}, {"03.cl", 1}, {"04.cl", 1},
+    {"00.cl", 1}, {"01.cl", 0}, {"02.cl", 1}, {"03.cl", 1}, {"04.cl", 1},
     {"05.cl", 1}, {"06.cl", 1}, {"07.cl", 0}, {"08.cl", 1},
 };
 

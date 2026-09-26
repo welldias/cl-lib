@@ -45,6 +45,7 @@ typedef struct cl_eval_ctx {
 void cl_eval_fail(cl_eval_ctx_t *ctx, int line, int col, const char *fmt, ...);
 
 cl_value_t *cl_val_string(cl_eval_ctx_t *ctx, const char *s);
+cl_value_t *cl_val_string_n(cl_eval_ctx_t *ctx, const char *s, size_t n); /* first n bytes of s */
 cl_value_t *cl_val_number(cl_eval_ctx_t *ctx, double n);
 cl_value_t *cl_val_bool(cl_eval_ctx_t *ctx, int b);
 cl_value_t *cl_val_null(cl_eval_ctx_t *ctx);
@@ -57,5 +58,11 @@ void cl_val_object_add(cl_eval_ctx_t *ctx, cl_value_t *obj, const char *key, cl_
  * passthrough, formatted number, "true"/"false"); fails ctx and returns
  * NULL for CL_VAL_NULL/LIST/OBJECT. Used by built-ins in cl_functions.c. */
 const char *cl_val_require_string(cl_eval_ctx_t *ctx, const cl_value_t *v, int line, int col);
+
+/* Deep copy of `v` into the result arena. */
+cl_value_t *cl_val_copy(cl_eval_ctx_t *ctx, const cl_value_t *v);
+
+/* Deep structural equality, the same comparison "==" uses. */
+int cl_value_equal(const cl_value_t *a, const cl_value_t *b);
 
 #endif /* CL_EVAL_H */

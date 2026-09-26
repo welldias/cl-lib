@@ -148,12 +148,12 @@ static void test_computed_keys_in_for_scope(void) {
 /* A repeated key is reported at the repeated key when it is computed, or
  * at its value otherwise (constant keys carry no position of their own). */
 static void test_key_errors(void) {
-    check_eval_error("o = { a = 1, a = 2 }\n", "chave 'a' duplicada em objeto", 1, 18);
-    check_eval_error("k = \"a\"\no = { a = 1, (k) = 2 }\n", "chave 'a' duplicada em objeto", 2, 15);
-    check_eval_error("k = \"a\"\no = { \"${k}\" = 1, a = 2 }\n", "chave 'a' duplicada em objeto", 2, 23);
-    check_eval_error("o = { ([1]) = 1 }\n", "chave de objeto precisa ser string, numero ou bool", 1, 8);
-    check_eval_error("o = { (null) = 1 }\n", "chave de objeto precisa ser string, numero ou bool", 1, 8);
-    check_eval_error("o = { \"${nope}\" = 1 }\n", "referencia 'nope' nao encontrada", 1, 10);
+    check_eval_error("o = { a = 1, a = 2 }\n", "duplicate key 'a' in object", 1, 18);
+    check_eval_error("k = \"a\"\no = { a = 1, (k) = 2 }\n", "duplicate key 'a' in object", 2, 15);
+    check_eval_error("k = \"a\"\no = { \"${k}\" = 1, a = 2 }\n", "duplicate key 'a' in object", 2, 23);
+    check_eval_error("o = { ([1]) = 1 }\n", "object key must be a string, number or bool", 1, 8);
+    check_eval_error("o = { (null) = 1 }\n", "object key must be a string, number or bool", 1, 8);
+    check_eval_error("o = { \"${nope}\" = 1 }\n", "reference 'nope' not found", 1, 10);
 }
 
 static void test_computed_labels(void) {
@@ -187,19 +187,19 @@ static void test_computed_labels(void) {
 static void test_label_errors(void) {
     /* the label needs `name`, which needs the block the label names */
     check_eval_error("name = server.api.port\nserver \"${name}\" {\n  port = 80\n}\n",
-                     "referencia circular no rotulo do bloco 'server'", 2, 8);
+                     "circular reference in label of block 'server'", 2, 8);
     /* the label reads its own block */
     check_eval_error("server \"${server.x.port}\" {\n  port = 80\n}\nx = server.a.port\n",
-                     "referencia circular no rotulo do bloco 'server'", 1, 8);
-    check_eval_error("server \"${nope}\" {}\n", "referencia 'nope' nao encontrada", 1, 11);
-    check_eval_error("server \"${[1]}\" {}\n", "nao e possivel converter esse valor para string", 1, 11);
+                     "circular reference in label of block 'server'", 1, 8);
+    check_eval_error("server \"${nope}\" {}\n", "reference 'nope' not found", 1, 11);
+    check_eval_error("server \"${[1]}\" {}\n", "cannot convert this value to string", 1, 11);
 }
 
 /* A computed label only has a value once evaluated: a document that never
  * reaches it through a traversal still evaluates it when building the
  * result, so its errors surface either way. */
 static void test_label_evaluated_even_if_unused(void) {
-    check_eval_error("a = 1\nserver \"${missing}\" {}\n", "referencia 'missing' nao encontrada", 2, 11);
+    check_eval_error("a = 1\nserver \"${missing}\" {}\n", "reference 'missing' not found", 2, 11);
 }
 
 static void test_number_interpolation_keeps_precision(void) {
@@ -222,7 +222,7 @@ static void test_number_interpolation_keeps_precision(void) {
         if (r) {
             cl_evaluated_free(r);
         } else {
-            CL_CHECK(strstr(err.message, "NaN ou infinito") != NULL);
+            CL_CHECK(strstr(err.message, "NaN or infinity") != NULL);
         }
         cl_document_free(doc);
     }
@@ -283,9 +283,9 @@ static void check_schema_error(const char *source, const char *fragment) {
 }
 
 static void test_schema_rejects_computed_names(void) {
-    check_schema_error("block \"${t}\" {\n}\n", "rotulo calculado nao e permitido no schema");
+    check_schema_error("block \"${t}\" {\n}\n", "computed label is not allowed in the schema");
     check_schema_error("block \"m\" {\n  cpu = { \"${k}\" = \"number\" }\n}\n",
-                       "chave calculada nao e permitida no schema");
+                       "computed key is not allowed in the schema");
 }
 
 void cl_test_run_strings(void) {

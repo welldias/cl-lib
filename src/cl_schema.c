@@ -211,7 +211,7 @@ static void cl_schema_enum_join(const cl_schema_attr_t *attr, char *out, size_t 
 static int cl_schema_check_result_shape(const cl_body_t *body, const cl_evaluated_body_t *ebody, int line, int col,
                                         cl_error_t *err) {
     if (ebody && ebody->count != body->count) {
-        return cl_schema_fail(err, line, col, "resultado nao corresponde ao documento");
+        return cl_schema_fail(err, line, col, "result does not match the document");
     }
     return 0;
 }
@@ -231,20 +231,20 @@ static int cl_schema_validate_block(const cl_schema_block_t *rule, const cl_bloc
         const cl_body_item_t *item = &body->items[i];
         const cl_evaluated_item_t *eitem = ebody ? &ebody->items[i] : NULL;
         if (eitem && eitem->kind != item->kind) {
-            return cl_schema_fail(err, block->line, block->col, "resultado nao corresponde ao documento");
+            return cl_schema_fail(err, block->line, block->col, "result does not match the document");
         }
 
         if (item->kind == CL_ITEM_ATTRIBUTE) {
             const cl_attribute_t *attr = item->as.attribute;
             const cl_schema_attr_t *attr_rule = cl_schema_find_attr(rule, attr->name);
             if (!attr_rule) {
-                return cl_schema_fail(err, attr->line, attr->col, "atributo '%s' nao permitido em bloco '%s'",
+                return cl_schema_fail(err, attr->line, attr->col, "attribute '%s' not allowed in block '%s'",
                                       attr->name, rule->type);
             }
             for (size_t j = 0; j < i; j++) {
                 if (body->items[j].kind == CL_ITEM_ATTRIBUTE &&
                     strcmp(body->items[j].as.attribute->name, attr->name) == 0) {
-                    return cl_schema_fail(err, attr->line, attr->col, "atributo '%s' duplicado em bloco '%s'",
+                    return cl_schema_fail(err, attr->line, attr->col, "duplicate attribute '%s' in block '%s'",
                                           attr->name, rule->type);
                 }
             }
@@ -260,7 +260,7 @@ static int cl_schema_validate_block(const cl_schema_block_t *rule, const cl_bloc
                 text = cl_expr_as_string(attr->value);
             }
             if (known && !cl_schema_type_accepts(attr_rule->type, kind)) {
-                return cl_schema_fail(err, attr->line, attr->col, "atributo '%s' em bloco '%s' deve ser %s, mas e %s",
+                return cl_schema_fail(err, attr->line, attr->col, "attribute '%s' in block '%s' must be %s, but is %s",
                                       attr->name, rule->type, cl_schema_type_name(attr_rule->type),
                                       cl_value_kind_name(kind));
             }
@@ -268,14 +268,14 @@ static int cl_schema_validate_block(const cl_schema_block_t *rule, const cl_bloc
                 char allowed[160];
                 cl_schema_enum_join(attr_rule, allowed, sizeof(allowed));
                 return cl_schema_fail(err, attr->line, attr->col,
-                                      "atributo '%s' em bloco '%s' deve ser um de: %s; mas e '%s'", attr->name,
+                                      "attribute '%s' in block '%s' must be one of: %s; but is '%s'", attr->name,
                                       rule->type, allowed, text);
             }
         } else {
             const cl_block_t *child = item->as.block;
             const cl_schema_block_t *child_rule = cl_schema_find_block(rule, child->type);
             if (!child_rule) {
-                return cl_schema_fail(err, child->line, child->col, "bloco '%s' nao permitido dentro de '%s'",
+                return cl_schema_fail(err, child->line, child->col, "block '%s' not allowed inside '%s'",
                                       child->type, rule->type);
             }
             if (cl_schema_validate_block(child_rule, child, eitem ? eitem->as.block : NULL, err) != 0) {
@@ -287,7 +287,7 @@ static int cl_schema_validate_block(const cl_schema_block_t *rule, const cl_bloc
     for (size_t r = 0; r < rule->attr_count; r++) {
         const cl_schema_attr_t *attr_rule = rule->attrs[r];
         if (attr_rule->required && !cl_body_get_attribute(body, attr_rule->name)) {
-            return cl_schema_fail(err, block->line, block->col, "atributo obrigatorio '%s' ausente em bloco '%s'",
+            return cl_schema_fail(err, block->line, block->col, "required attribute '%s' missing in block '%s'",
                                   attr_rule->name, rule->type);
         }
     }
@@ -297,7 +297,7 @@ static int cl_schema_validate_block(const cl_schema_block_t *rule, const cl_bloc
 int cl_schema_validate(const cl_schema_t *schema, const cl_document_t *doc, const cl_evaluated_t *result,
                        cl_error_t *err) {
     if (!schema || !doc) {
-        return cl_schema_fail(err, 0, 0, "schema ou documento ausente");
+        return cl_schema_fail(err, 0, 0, "missing schema or document");
     }
     const cl_body_t *root = doc->root;
     const cl_evaluated_body_t *eroot = result ? result->root : NULL;
@@ -312,13 +312,13 @@ int cl_schema_validate(const cl_schema_t *schema, const cl_document_t *doc, cons
         }
         const cl_evaluated_item_t *eitem = eroot ? &eroot->items[i] : NULL;
         if (eitem && eitem->kind != CL_ITEM_BLOCK) {
-            return cl_schema_fail(err, 1, 1, "resultado nao corresponde ao documento");
+            return cl_schema_fail(err, 1, 1, "result does not match the document");
         }
         const cl_block_t *block = item->as.block;
         const cl_schema_block_t *rule = cl_schema_find_block(&schema->root, block->type);
         if (!rule) {
             if (schema->strict) {
-                return cl_schema_fail(err, block->line, block->col, "tipo de bloco '%s' nao registrado no schema",
+                return cl_schema_fail(err, block->line, block->col, "block type '%s' not registered in the schema",
                                       block->type);
             }
             continue;

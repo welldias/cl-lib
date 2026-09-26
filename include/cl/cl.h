@@ -2,6 +2,7 @@
 #define CL_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -12,6 +13,14 @@ extern "C" {
 #define CL_VERSION_PATCH 0
 
 const char *cl_version(void);
+
+/* Lets the compiler check printf-style format strings. */
+#if defined(__GNUC__) || defined(__clang__)
+#define CL_PRINTF_FORMAT(fmt_index, first_arg) __attribute__((format(printf, fmt_index, first_arg)))
+#else
+#define CL_PRINTF_FORMAT(fmt_index, first_arg)
+#endif
+
 
 /* ------------------------------------------------------------------ */
 /* Error reporting                                                     */
@@ -434,7 +443,8 @@ struct cl_evaluated_body {
  * Every cl_value_t below is owned by the cl_bindings_t that created it and
  * may only be passed to functions of that same cl_bindings_t. Evaluation
  * copies what it uses into the result, so the bindings can be freed right
- * after cl_document_evaluate_with() returns. */
+ * after cl_document_evaluate_with() returns. A cl_bindings_t can also carry
+ * host functions - see cl_bindings_set_function() below. */
 typedef struct cl_bindings cl_bindings_t;
 
 cl_bindings_t *cl_bindings_new(void);
@@ -459,6 +469,67 @@ int cl_bindings_set(cl_bindings_t *bindings, const char *name, cl_value_t *value
 int cl_bindings_set_string(cl_bindings_t *bindings, const char *name, const char *value);
 int cl_bindings_set_number(cl_bindings_t *bindings, const char *name, double value);
 int cl_bindings_set_bool(cl_bindings_t *bindings, const char *name, int value);
+
+/* ---- host functions: C callbacks callable from the document ---------
+ *
+ * cl_bindings_set_function() makes `name(...)` callable during evaluation,
+ * running `fn` with the `userdata` given here. A host function takes
+ * precedence over a built-in of the same name (so the host can replace
+ * one), and a function and a value binding may share a name: calls and
+ * references never collide. `fn` only runs when the call's argument count
+ * is within [min_args, max_args]; use CL_FUNCTION_VARIADIC as max_args for
+ * no upper limit. Arguments are already evaluated (a trailing "..." is
+ * already expanded) when `fn` runs.
+ *
+ * `fn` returns its result, built with the cl_call_*() constructors below
+ * (the values live in the evaluation result), or one of its arguments or a
+ * value inside one. Any other value (for example one owned by a
+ * cl_bindings_t or by the host) must go through cl_call_copy() first. On
+ * failure `fn` returns cl_call_error(...), which reports the message at the
+ * call site and stops evaluation. Returning NULL without it is reported as
+ * a generic failure.
+ *
+ * Arguments are shared with the rest of the document: read them, return
+ * them, add them into new containers, but never modify them.
+ * cl_call_list_add() and cl_call_object_set() therefore only accept
+ * containers created by the same call. */
+typedef struct cl_call cl_call_t;
+typedef cl_value_t *(*cl_function_t)(cl_call_t *call, void *userdata);
+
+#define CL_FUNCTION_VARIADIC SIZE_MAX
+
+/* Registers `fn` under `name`, replacing any previous function of that
+ * name. Returns 0 on success, -1 on a NULL argument, an empty name, or
+ * min_args > max_args. `userdata` must stay valid while evaluating. */
+int cl_bindings_set_function(cl_bindings_t *bindings, const char *name, size_t min_args, size_t max_args,
+                             cl_function_t fn, void *userdata);
+
+const char *cl_call_name(const cl_call_t *call);
+size_t cl_call_argc(const cl_call_t *call);
+cl_value_t *cl_call_arg(const cl_call_t *call, size_t index); /* NULL when index >= argc */
+
+cl_value_t *cl_call_string(cl_call_t *call, const char *value);
+cl_value_t *cl_call_number(cl_call_t *call, double value);
+cl_value_t *cl_call_bool(cl_call_t *call, int value);
+cl_value_t *cl_call_null(cl_call_t *call);
+cl_value_t *cl_call_list(cl_call_t *call);
+cl_value_t *cl_call_object(cl_call_t *call);
+
+/* Both return 0 on success, -1 on a NULL argument, a wrong container kind,
+ * a container not created by this call, or when `item`/`value` already
+ * contains `list`/`object` (which would make the value cyclic).
+ * cl_call_object_set replaces an existing key in place. */
+int cl_call_list_add(cl_call_t *call, cl_value_t *list, cl_value_t *item);
+int cl_call_object_set(cl_call_t *call, cl_value_t *object, const char *key, cl_value_t *value);
+
+/* Deep copy of any value (e.g. one built with cl_bindings_*()) into the
+ * evaluation result, so it can be returned or added to a new container. */
+cl_value_t *cl_call_copy(cl_call_t *call, const cl_value_t *value);
+
+/* Fails the evaluation with "name(): <message>" at the call's position and
+ * returns NULL, so a callback can write `return cl_call_error(call, ...);`.
+ * Only the first error of an evaluation is kept. */
+cl_value_t *cl_call_error(cl_call_t *call, const char *fmt, ...) CL_PRINTF_FORMAT(2, 3);
 
 /* Walks doc->root, resolving every expression (including traversals,
  * operators, for-expressions, splats, function calls and templates) into a
@@ -607,12 +678,6 @@ int cl_attr_iter_next(cl_attr_iter_t *it, const char **key, const cl_value_t **v
  *
  * The formatted text is an ordinary path: a label holding "." or "["
  * still needs the ["..."] form. */
-#if defined(__GNUC__) || defined(__clang__)
-#define CL_PRINTF_FORMAT(fmt_index, first_arg) __attribute__((format(printf, fmt_index, first_arg)))
-#else
-#define CL_PRINTF_FORMAT(fmt_index, first_arg)
-#endif
-
 const char *cl_get_stringf(const cl_evaluated_body_t *base, const char *def, const char *fmt, ...)
     CL_PRINTF_FORMAT(3, 4);
 long cl_get_intf(const cl_evaluated_body_t *base, long def, const char *fmt, ...) CL_PRINTF_FORMAT(3, 4);

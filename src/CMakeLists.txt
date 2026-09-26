@@ -10,6 +10,7 @@ set(CL_SOURCES
     cl_writer.c
     cl_eval.c
     cl_functions.c
+    cl_call.c
     cl_bindings.c
     cl_schema.c
     cl_schema_load.c
@@ -20,7 +21,8 @@ set(CL_SOURCES
 option(CL_BUILD_STATIC "Build the static cl library (libcl.a)" ON)
 option(CL_BUILD_SHARED "Build the shared cl library (libcl.so)" ON)
 
-# cl_eval.c uses fmod() for the "%" operator.
+# cl_eval.c uses fmod() for the "%" operator; cl_functions.c uses floor(),
+# ceil(), round() and pow().
 if(UNIX)
     find_library(CL_MATH_LIBRARY m)
 endif()

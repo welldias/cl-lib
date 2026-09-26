@@ -430,7 +430,7 @@ int cl_save_file(const cl_document_t *doc, const char *path, cl_error_t *err) {
     FILE *f = fopen(path, "wb");
     if (!f) {
         if (err) {
-            snprintf(err->message, sizeof(err->message), "nao foi possivel abrir '%s' para escrita", path);
+            snprintf(err->message, sizeof(err->message), "could not open '%s' for writing", path);
             err->line = 0;
             err->col = 0;
         }
@@ -443,7 +443,7 @@ int cl_save_file(const cl_document_t *doc, const char *path, cl_error_t *err) {
     free(text);
     if (written != len) {
         if (err) {
-            snprintf(err->message, sizeof(err->message), "falha ao escrever em '%s'", path);
+            snprintf(err->message, sizeof(err->message), "failed to write to '%s'", path);
             err->line = 0;
             err->col = 0;
         }

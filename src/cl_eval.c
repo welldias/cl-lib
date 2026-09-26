@@ -41,6 +41,14 @@ cl_value_t *cl_val_string(cl_eval_ctx_t *ctx, const char *s) {
     return v;
 }
 
+cl_value_t *cl_val_string_n(cl_eval_ctx_t *ctx, const char *s, size_t n) {
+    cl_value_t *v = cl_val_new(ctx, CL_VAL_STRING);
+    v->as.string_value = cl_arena_alloc_raw(&ctx->result->arena, n + 1);
+    memcpy(v->as.string_value, s, n);
+    v->as.string_value[n] = '\0';
+    return v;
+}
+
 cl_value_t *cl_val_number(cl_eval_ctx_t *ctx, double n) {
     cl_value_t *v = cl_val_new(ctx, CL_VAL_NUMBER);
     v->as.number_value = n;
@@ -94,7 +102,7 @@ const char *cl_val_require_string(cl_eval_ctx_t *ctx, const cl_value_t *v, int l
         case CL_VAL_NUMBER: {
             char tmp[64];
             if (cl_format_number(tmp, sizeof(tmp), v->as.number_value) != 0) {
-                cl_eval_fail(ctx, line, col, "nao e possivel converter NaN ou infinito para string");
+                cl_eval_fail(ctx, line, col, "cannot convert NaN or infinity to string");
                 return NULL;
             }
             return cl_arena_strdup_raw(&ctx->result->arena, tmp);
@@ -102,12 +110,12 @@ const char *cl_val_require_string(cl_eval_ctx_t *ctx, const cl_value_t *v, int l
         case CL_VAL_BOOL:
             return v->as.bool_value ? "true" : "false";
         default:
-            cl_eval_fail(ctx, line, col, "nao e possivel converter esse valor para string");
+            cl_eval_fail(ctx, line, col, "cannot convert this value to string");
             return NULL;
     }
 }
 
-static int cl_value_equal(const cl_value_t *a, const cl_value_t *b) {
+int cl_value_equal(const cl_value_t *a, const cl_value_t *b) {
     if (a->kind != b->kind) {
         return 0;
     }
@@ -162,10 +170,11 @@ static cl_value_t *cl_scope_lookup(const cl_eval_scope_t *scope, const char *nam
 /* External bindings                                                    */
 /* ------------------------------------------------------------------ */
 
-/* Deep-copies a host-built binding value into the result arena, so the
- * evaluated tree never points into the cl_bindings_t (which the host may
- * free as soon as evaluation returns). */
-static cl_value_t *cl_val_copy(cl_eval_ctx_t *ctx, const cl_value_t *v) {
+/* Deep-copies a host-built value (a binding, or what a host function hands
+ * to cl_call_copy()) into the result arena, so the evaluated tree never
+ * points into the cl_bindings_t (which the host may free as soon as
+ * evaluation returns) or into host memory. */
+cl_value_t *cl_val_copy(cl_eval_ctx_t *ctx, const cl_value_t *v) {
     switch (v->kind) {
         case CL_VAL_STRING: return cl_val_string(ctx, v->as.string_value);
         case CL_VAL_NUMBER: return cl_val_number(ctx, v->as.number_value);
@@ -230,15 +239,15 @@ static cl_value_t *cl_eval_body_as_object(cl_eval_ctx_t *ctx, const cl_body_t *b
 
 static cl_value_t *cl_eval_index_list(cl_eval_ctx_t *ctx, cl_value_t *current, double index, int line, int col) {
     if (current->kind != CL_VAL_LIST) {
-        cl_eval_fail(ctx, line, col, "nao e possivel indexar: valor nao e uma lista");
+        cl_eval_fail(ctx, line, col, "cannot index: value is not a list");
         return NULL;
     }
     if (index != floor(index)) {
-        cl_eval_fail(ctx, line, col, "indice %g deve ser inteiro", index);
+        cl_eval_fail(ctx, line, col, "index %g must be an integer", index);
         return NULL;
     }
     if (index < 0 || index >= (double)current->as.list.count) {
-        cl_eval_fail(ctx, line, col, "indice %g fora dos limites (lista com %zu itens)", index,
+        cl_eval_fail(ctx, line, col, "index %g out of range (list has %zu items)", index,
                      current->as.list.count);
         return NULL;
     }
@@ -248,12 +257,12 @@ static cl_value_t *cl_eval_index_list(cl_eval_ctx_t *ctx, cl_value_t *current, d
 static cl_value_t *cl_eval_index_object(cl_eval_ctx_t *ctx, cl_value_t *current, const char *key, int line,
                                         int col) {
     if (current->kind != CL_VAL_OBJECT) {
-        cl_eval_fail(ctx, line, col, "nao e possivel acessar '[\"%s\"]': valor nao e um objeto", key);
+        cl_eval_fail(ctx, line, col, "cannot access '[\"%s\"]': value is not an object", key);
         return NULL;
     }
     cl_value_t *v = cl_value_object_get(current, key);
     if (!v) {
-        cl_eval_fail(ctx, line, col, "chave '%s' nao encontrada", key);
+        cl_eval_fail(ctx, line, col, "key '%s' not found", key);
         return NULL;
     }
     return v;
@@ -264,12 +273,12 @@ static cl_value_t *cl_eval_apply_step(cl_eval_ctx_t *ctx, const cl_eval_scope_t 
     switch (step->kind) {
         case CL_STEP_ATTR: {
             if (current->kind != CL_VAL_OBJECT) {
-                cl_eval_fail(ctx, line, col, "nao e possivel acessar '.%s': valor nao e um objeto", step->name);
+                cl_eval_fail(ctx, line, col, "cannot access '.%s': value is not an object", step->name);
                 return NULL;
             }
             cl_value_t *v = cl_value_object_get(current, step->name);
             if (!v) {
-                cl_eval_fail(ctx, line, col, "chave '%s' nao encontrada", step->name);
+                cl_eval_fail(ctx, line, col, "key '%s' not found", step->name);
                 return NULL;
             }
             return v;
@@ -292,7 +301,7 @@ static cl_value_t *cl_eval_apply_step(cl_eval_ctx_t *ctx, const cl_eval_scope_t 
             if (key->kind == CL_VAL_STRING) {
                 return cl_eval_index_object(ctx, current, key->as.string_value, step->expr->line, step->expr->col);
             }
-            cl_eval_fail(ctx, step->expr->line, step->expr->col, "indice deve ser numero ou string");
+            cl_eval_fail(ctx, step->expr->line, step->expr->col, "index must be a number or a string");
             return NULL;
         }
         case CL_STEP_SPLAT_ATTR:
@@ -361,7 +370,7 @@ static const char *cl_eval_label(cl_eval_ctx_t *ctx, const cl_block_t *block, si
     }
     const cl_expr_t *label = block->label_exprs[index];
     if (cl_eval_is_resolving(ctx->resolving, label)) {
-        cl_eval_fail(ctx, label->line, label->col, "referencia circular no rotulo do bloco '%s'", block->type);
+        cl_eval_fail(ctx, label->line, label->col, "circular reference in label of block '%s'", block->type);
         return NULL;
     }
     cl_eval_resolving_t frame = {ctx->resolving, label};
@@ -457,7 +466,7 @@ static cl_value_t *cl_eval_traversal(cl_eval_ctx_t *ctx, const cl_eval_scope_t *
         cl_attribute_t *attr = cl_body_get_attribute(ctx->root_scope, root_name);
         if (attr) {
             if (cl_eval_is_resolving(ctx->resolving, attr)) {
-                cl_eval_fail(ctx, expr->line, expr->col, "referencia circular envolvendo '%s'", root_name);
+                cl_eval_fail(ctx, expr->line, expr->col, "circular reference involving '%s'", root_name);
                 return NULL;
             }
             cl_eval_resolving_t frame = {ctx->resolving, attr};
@@ -469,7 +478,7 @@ static cl_value_t *cl_eval_traversal(cl_eval_ctx_t *ctx, const cl_eval_scope_t *
             }
         } else {
             if (step_count == 0 || steps[0].kind != CL_STEP_ATTR) {
-                cl_eval_fail(ctx, expr->line, expr->col, "referencia '%s' nao encontrada", root_name);
+                cl_eval_fail(ctx, expr->line, expr->col, "reference '%s' not found", root_name);
                 return NULL;
             }
             size_t consumed = 0;
@@ -478,12 +487,12 @@ static cl_value_t *cl_eval_traversal(cl_eval_ctx_t *ctx, const cl_eval_scope_t *
                 return NULL;
             }
             if (!block) {
-                cl_eval_fail(ctx, expr->line, expr->col, "referencia '%s.%s' nao encontrada", root_name,
+                cl_eval_fail(ctx, expr->line, expr->col, "reference '%s.%s' not found", root_name,
                              steps[0].name);
                 return NULL;
             }
             if (cl_eval_is_resolving(ctx->resolving, block)) {
-                cl_eval_fail(ctx, expr->line, expr->col, "referencia circular envolvendo '%s.%s'", root_name,
+                cl_eval_fail(ctx, expr->line, expr->col, "circular reference involving '%s.%s'", root_name,
                              steps[0].name);
                 return NULL;
             }
@@ -557,7 +566,7 @@ static int cl_eval_render_template_into(cl_eval_ctx_t *ctx, const cl_eval_scope_
                     return -1;
                 }
                 if (c->kind != CL_VAL_BOOL) {
-                    cl_eval_fail(ctx, part->if_cond->line, part->if_cond->col, "condicao de %%{if} precisa ser bool");
+                    cl_eval_fail(ctx, part->if_cond->line, part->if_cond->col, "%%{if} condition must be a bool");
                     return -1;
                 }
                 if (c->as.bool_value) {
@@ -578,7 +587,7 @@ static int cl_eval_render_template_into(cl_eval_ctx_t *ctx, const cl_eval_scope_
                 }
                 if (coll->kind != CL_VAL_LIST && coll->kind != CL_VAL_OBJECT) {
                     cl_eval_fail(ctx, part->for_collection->line, part->for_collection->col,
-                                 "%%{for} espera lista ou objeto");
+                                 "%%{for} expects a list or an object");
                     return -1;
                 }
                 size_t n = (coll->kind == CL_VAL_LIST) ? coll->as.list.count : coll->as.object.count;
@@ -625,9 +634,12 @@ static cl_value_t *cl_eval_template(cl_eval_ctx_t *ctx, const cl_eval_scope_t *s
 }
 
 static cl_value_t *cl_eval_call(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scope, const cl_expr_t *expr) {
-    cl_builtin_fn_t fn = cl_builtin_lookup(expr->as.call.name);
-    if (!fn) {
-        cl_eval_fail(ctx, expr->line, expr->col, "funcao '%s' nao suportada", expr->as.call.name);
+    /* A host function shadows a built-in of the same name. */
+    const char *name = expr->as.call.name;
+    const cl_host_function_t *host = cl_bindings_lookup_function(ctx->bindings, name);
+    const cl_builtin_t *builtin = host ? NULL : cl_builtin_lookup(name);
+    if (!host && !builtin) {
+        cl_eval_fail(ctx, expr->line, expr->col, "unknown function '%s'", expr->as.call.name);
         return NULL;
     }
 
@@ -644,7 +656,7 @@ static cl_value_t *cl_eval_call(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scope
         if (expr->as.call.expand_final && i + 1 == expr->as.call.count) {
             if (v->kind != CL_VAL_LIST) {
                 free(args);
-                cl_eval_fail(ctx, expr->line, expr->col, "'...' espera uma lista no ultimo argumento");
+                cl_eval_fail(ctx, expr->line, expr->col, "'...' expects a list as the last argument");
                 return NULL;
             }
             for (size_t j = 0; j < v->as.list.count; j++) {
@@ -671,7 +683,16 @@ static cl_value_t *cl_eval_call(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scope
         }
     }
 
-    cl_value_t *result = fn(ctx, args, argc, expr->line, expr->col);
+    size_t min_args = host ? host->min_args : builtin->min_args;
+    size_t max_args = host ? host->max_args : builtin->max_args;
+    if (argc < min_args || argc > max_args) {
+        cl_function_arity_fail(ctx, name, min_args, max_args, argc, expr->line, expr->col);
+        free(args);
+        return NULL;
+    }
+
+    cl_value_t *result = host ? cl_call_invoke(ctx, host, args, argc, expr->line, expr->col)
+                              : builtin->fn(ctx, args, argc, expr->line, expr->col);
     free(args);
     return result;
 }
@@ -683,13 +704,13 @@ static cl_value_t *cl_eval_unary(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scop
     }
     if (expr->as.unary.op == CL_OP_NEG) {
         if (operand->kind != CL_VAL_NUMBER) {
-            cl_eval_fail(ctx, expr->line, expr->col, "operador unario '-' espera numero");
+            cl_eval_fail(ctx, expr->line, expr->col, "unary operator '-' expects a number");
             return NULL;
         }
         return cl_val_number(ctx, -operand->as.number_value);
     }
     if (operand->kind != CL_VAL_BOOL) {
-        cl_eval_fail(ctx, expr->line, expr->col, "operador unario '!' espera bool");
+        cl_eval_fail(ctx, expr->line, expr->col, "unary operator '!' expects a bool");
         return NULL;
     }
     return cl_val_bool(ctx, !operand->as.bool_value);
@@ -723,7 +744,7 @@ static cl_value_t *cl_eval_binary(cl_eval_ctx_t *ctx, const cl_eval_scope_t *sco
             return NULL;
         }
         if (l->kind != CL_VAL_BOOL) {
-            cl_eval_fail(ctx, expr->line, expr->col, "operador logico espera bool");
+            cl_eval_fail(ctx, expr->line, expr->col, "logical operator expects a bool");
             return NULL;
         }
         if (op == CL_OP_AND && !l->as.bool_value) {
@@ -737,7 +758,7 @@ static cl_value_t *cl_eval_binary(cl_eval_ctx_t *ctx, const cl_eval_scope_t *sco
             return NULL;
         }
         if (r->kind != CL_VAL_BOOL) {
-            cl_eval_fail(ctx, expr->line, expr->col, "operador logico espera bool");
+            cl_eval_fail(ctx, expr->line, expr->col, "logical operator expects a bool");
             return NULL;
         }
         return cl_val_bool(ctx, r->as.bool_value);
@@ -760,7 +781,7 @@ static cl_value_t *cl_eval_binary(cl_eval_ctx_t *ctx, const cl_eval_scope_t *sco
     }
 
     if (l->kind != CL_VAL_NUMBER || r->kind != CL_VAL_NUMBER) {
-        cl_eval_fail(ctx, expr->line, expr->col, "operador '%s' espera numeros", cl_eval_binary_op_name(op));
+        cl_eval_fail(ctx, expr->line, expr->col, "operator '%s' expects numbers", cl_eval_binary_op_name(op));
         return NULL;
     }
     double a = l->as.number_value;
@@ -771,13 +792,13 @@ static cl_value_t *cl_eval_binary(cl_eval_ctx_t *ctx, const cl_eval_scope_t *sco
         case CL_OP_MUL: return cl_val_number(ctx, a * b);
         case CL_OP_DIV:
             if (b == 0) {
-                cl_eval_fail(ctx, expr->line, expr->col, "divisao por zero");
+                cl_eval_fail(ctx, expr->line, expr->col, "division by zero");
                 return NULL;
             }
             return cl_val_number(ctx, a / b);
         case CL_OP_MOD:
             if (b == 0) {
-                cl_eval_fail(ctx, expr->line, expr->col, "divisao por zero");
+                cl_eval_fail(ctx, expr->line, expr->col, "division by zero");
                 return NULL;
             }
             return cl_val_number(ctx, fmod(a, b));
@@ -795,7 +816,7 @@ static cl_value_t *cl_eval_for(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scope,
         return NULL;
     }
     if (coll->kind != CL_VAL_LIST && coll->kind != CL_VAL_OBJECT) {
-        cl_eval_fail(ctx, expr->line, expr->col, "for-expression espera lista ou objeto");
+        cl_eval_fail(ctx, expr->line, expr->col, "for-expression expects a list or an object");
         return NULL;
     }
 
@@ -827,7 +848,7 @@ static cl_value_t *cl_eval_for(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scope,
                 return NULL;
             }
             if (cond_val->kind != CL_VAL_BOOL) {
-                cl_eval_fail(ctx, expr->line, expr->col, "filtro 'if' de for-expression precisa ser bool");
+                cl_eval_fail(ctx, expr->line, expr->col, "for-expression 'if' filter must be a bool");
                 return NULL;
             }
             if (!cond_val->as.bool_value) {
@@ -841,7 +862,7 @@ static cl_value_t *cl_eval_for(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scope,
                 return NULL;
             }
             if (key_val->kind != CL_VAL_STRING) {
-                cl_eval_fail(ctx, expr->line, expr->col, "chave de for-expression de objeto precisa ser string");
+                cl_eval_fail(ctx, expr->line, expr->col, "object for-expression key must be a string");
                 return NULL;
             }
             cl_value_t *value_val = cl_eval_expr(ctx, &frame, expr->as.for_expr.value_expr);
@@ -851,7 +872,7 @@ static cl_value_t *cl_eval_for(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scope,
             cl_value_t *existing = cl_value_object_get(result, key_val->as.string_value);
             if (existing) {
                 if (!expr->as.for_expr.grouping) {
-                    cl_eval_fail(ctx, expr->line, expr->col, "chave '%s' duplicada em for-expression de objeto",
+                    cl_eval_fail(ctx, expr->line, expr->col, "duplicate key '%s' in object for-expression",
                                  key_val->as.string_value);
                     return NULL;
                 }
@@ -895,7 +916,7 @@ static cl_value_t *cl_eval_expr(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scope
                     }
                     if (k->kind != CL_VAL_STRING && k->kind != CL_VAL_NUMBER && k->kind != CL_VAL_BOOL) {
                         cl_eval_fail(ctx, item->key_expr->line, item->key_expr->col,
-                                     "chave de objeto precisa ser string, numero ou bool");
+                                     "object key must be a string, number or bool");
                         return NULL;
                     }
                     key = cl_val_require_string(ctx, k, item->key_expr->line, item->key_expr->col);
@@ -905,7 +926,7 @@ static cl_value_t *cl_eval_expr(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scope
                 }
                 if (cl_value_object_get(obj, key)) {
                     const cl_expr_t *at = item->key_expr ? item->key_expr : item->value;
-                    cl_eval_fail(ctx, at->line, at->col, "chave '%s' duplicada em objeto", key);
+                    cl_eval_fail(ctx, at->line, at->col, "duplicate key '%s' in object", key);
                     return NULL;
                 }
                 cl_value_t *v = cl_eval_expr(ctx, scope, item->value);
@@ -939,7 +960,7 @@ static cl_value_t *cl_eval_expr(cl_eval_ctx_t *ctx, const cl_eval_scope_t *scope
                 return NULL;
             }
             if (c->kind != CL_VAL_BOOL) {
-                cl_eval_fail(ctx, expr->line, expr->col, "condicao de '?:' precisa ser bool");
+                cl_eval_fail(ctx, expr->line, expr->col, "'?:' condition must be a bool");
                 return NULL;
             }
             return cl_eval_expr(ctx, scope, c->as.bool_value ? expr->as.conditional.then_expr
@@ -1027,8 +1048,10 @@ cl_evaluated_t *cl_document_evaluate_with(cl_document_t *doc, const cl_bindings_
     ctx.result = result;
     ctx.err = err;
     ctx.failed = 0;
-    if (bindings && bindings->count > 0) {
+    if (bindings && (bindings->count > 0 || bindings->function_count > 0)) {
         ctx.bindings = bindings;
+    }
+    if (bindings && bindings->count > 0) {
         ctx.bound_copies = cl_arena_alloc_raw(&result->arena, bindings->count * sizeof(cl_value_t *));
     }
 

@@ -91,7 +91,7 @@ static int cl_parse_index_step(cl_parser_state_t *state, cl_traversal_step_t *ou
 
     const cl_token_t *close_tok = cl_cur(state);
     if (close_tok->kind != CL_TOK_RBRACKET) {
-        cl_fail(state, close_tok, "esperado ']'");
+        cl_fail(state, close_tok, "expected ']'");
         return -1;
     }
     cl_advance_token(state);
@@ -114,7 +114,7 @@ static cl_expr_t *cl_parse_traversal(cl_parser_state_t *state) {
             }
             const cl_token_t *name_tok = cl_cur(state);
             if (name_tok->kind != CL_TOK_IDENT) {
-                cl_fail(state, name_tok, "esperado identificador apos '.'");
+                cl_fail(state, name_tok, "expected identifier after '.'");
                 return NULL;
             }
             cl_advance_token(state);
@@ -171,7 +171,7 @@ static cl_expr_t *cl_parse_postfix_steps(cl_parser_state_t *state, cl_expr_t *ba
             }
             const cl_token_t *name_tok = cl_cur(state);
             if (name_tok->kind != CL_TOK_IDENT) {
-                cl_fail(state, name_tok, "esperado identificador apos '.'");
+                cl_fail(state, name_tok, "expected identifier after '.'");
                 return NULL;
             }
             cl_advance_token(state);
@@ -215,7 +215,7 @@ static cl_expr_t *cl_parse_call(cl_parser_state_t *state) {
 
     while (cl_cur(state)->kind != CL_TOK_RPAREN) {
         if (cl_cur(state)->kind == CL_TOK_EOF) {
-            cl_fail(state, cl_cur(state), "esperado ')'");
+            cl_fail(state, cl_cur(state), "expected ')'");
             return NULL;
         }
         cl_expr_t *arg = cl_parse_expr(state);
@@ -240,7 +240,7 @@ static cl_expr_t *cl_parse_call(cl_parser_state_t *state) {
     }
 
     if (cl_cur(state)->kind != CL_TOK_RPAREN) {
-        cl_fail(state, cl_cur(state), "esperado ')'");
+        cl_fail(state, cl_cur(state), "expected ')'");
         return NULL;
     }
     cl_advance_token(state);
@@ -252,7 +252,7 @@ static cl_expr_t *cl_parse_for(cl_parser_state_t *state, const cl_token_t *open_
 
     const cl_token_t *var1_tok = cl_cur(state);
     if (var1_tok->kind != CL_TOK_IDENT) {
-        cl_fail(state, var1_tok, "esperado variavel em for-expression");
+        cl_fail(state, var1_tok, "expected variable in for-expression");
         return NULL;
     }
     cl_advance_token(state);
@@ -264,7 +264,7 @@ static cl_expr_t *cl_parse_for(cl_parser_state_t *state, const cl_token_t *open_
         cl_advance_token(state);
         const cl_token_t *var2_tok = cl_cur(state);
         if (var2_tok->kind != CL_TOK_IDENT) {
-            cl_fail(state, var2_tok, "esperado segunda variavel em for-expression");
+            cl_fail(state, var2_tok, "expected second variable in for-expression");
             return NULL;
         }
         cl_advance_token(state);
@@ -274,7 +274,7 @@ static cl_expr_t *cl_parse_for(cl_parser_state_t *state, const cl_token_t *open_
 
     const cl_token_t *in_tok = cl_cur(state);
     if (in_tok->kind != CL_TOK_IDENT || strcmp(in_tok->text, "in") != 0) {
-        cl_fail(state, in_tok, "esperado 'in' em for-expression");
+        cl_fail(state, in_tok, "expected 'in' in for-expression");
         return NULL;
     }
     cl_advance_token(state);
@@ -285,7 +285,7 @@ static cl_expr_t *cl_parse_for(cl_parser_state_t *state, const cl_token_t *open_
     }
 
     if (cl_cur(state)->kind != CL_TOK_COLON) {
-        cl_fail(state, cl_cur(state), "esperado ':' em for-expression");
+        cl_fail(state, cl_cur(state), "expected ':' in for-expression");
         return NULL;
     }
     cl_advance_token(state);
@@ -300,7 +300,7 @@ static cl_expr_t *cl_parse_for(cl_parser_state_t *state, const cl_token_t *open_
             return NULL;
         }
         if (cl_cur(state)->kind != CL_TOK_FATARROW) {
-            cl_fail(state, cl_cur(state), "esperado '=>' em for-expression de objeto");
+            cl_fail(state, cl_cur(state), "expected '=>' in object for-expression");
             return NULL;
         }
         cl_advance_token(state);
@@ -330,7 +330,7 @@ static cl_expr_t *cl_parse_for(cl_parser_state_t *state, const cl_token_t *open_
 
     cl_token_kind_t closer = is_object ? CL_TOK_RBRACE : CL_TOK_RBRACKET;
     if (cl_cur(state)->kind != closer) {
-        cl_fail(state, cl_cur(state), "esperado fechamento do for-expression");
+        cl_fail(state, cl_cur(state), "expected end of for-expression");
         return NULL;
     }
     cl_advance_token(state);
@@ -350,7 +350,7 @@ static cl_expr_t *cl_parse_bracket(cl_parser_state_t *state) {
     cl_expr_t *tuple = cl_expr_new_tuple(state->doc, open_tok->line, open_tok->col);
     while (cl_cur(state)->kind != CL_TOK_RBRACKET) {
         if (cl_cur(state)->kind == CL_TOK_EOF) {
-            cl_fail(state, cl_cur(state), "esperado ']'");
+            cl_fail(state, cl_cur(state), "expected ']'");
             return NULL;
         }
         cl_expr_t *item = cl_parse_expr(state);
@@ -365,7 +365,7 @@ static cl_expr_t *cl_parse_bracket(cl_parser_state_t *state) {
         break;
     }
     if (cl_cur(state)->kind != CL_TOK_RBRACKET) {
-        cl_fail(state, cl_cur(state), "esperado ']'");
+        cl_fail(state, cl_cur(state), "expected ']'");
         return NULL;
     }
     cl_advance_token(state);
@@ -405,7 +405,7 @@ static cl_expr_t *cl_parse_object_body(cl_parser_state_t *state, const cl_token_
     while (cl_cur(state)->kind != CL_TOK_RBRACE) {
         const cl_token_t *key_tok = cl_cur(state);
         if (key_tok->kind == CL_TOK_EOF) {
-            cl_fail(state, key_tok, "esperado '}'");
+            cl_fail(state, key_tok, "expected '}'");
             return NULL;
         }
         const char *key = NULL;    /* constant key */
@@ -425,12 +425,12 @@ static cl_expr_t *cl_parse_object_body(cl_parser_state_t *state, const cl_token_
                 return NULL;
             }
             if (cl_cur(state)->kind != CL_TOK_RPAREN) {
-                cl_fail(state, cl_cur(state), "esperado ')'");
+                cl_fail(state, cl_cur(state), "expected ')'");
                 return NULL;
             }
             cl_advance_token(state);
         } else {
-            cl_fail(state, key_tok, "chave de objeto invalida");
+            cl_fail(state, key_tok, "invalid object key");
             return NULL;
         }
         if (key_expr && key_expr->kind == CL_EXPR_STRING) {
@@ -440,7 +440,7 @@ static cl_expr_t *cl_parse_object_body(cl_parser_state_t *state, const cl_token_
 
         const cl_token_t *sep_tok = cl_cur(state);
         if (sep_tok->kind != CL_TOK_EQUAL && sep_tok->kind != CL_TOK_COLON) {
-            cl_fail(state, sep_tok, "esperado '=' ou ':'");
+            cl_fail(state, sep_tok, "expected '=' or ':'");
             return NULL;
         }
         cl_advance_token(state);
@@ -491,7 +491,7 @@ static cl_expr_t *cl_parse_primary(cl_parser_state_t *state) {
                 return NULL;
             }
             if (cl_cur(state)->kind != CL_TOK_RPAREN) {
-                cl_fail(state, cl_cur(state), "esperado ')'");
+                cl_fail(state, cl_cur(state), "expected ')'");
                 return NULL;
             }
             cl_advance_token(state);
@@ -533,7 +533,7 @@ static cl_expr_t *cl_parse_primary(cl_parser_state_t *state) {
             }
             return cl_parse_traversal(state);
         default:
-            cl_fail(state, tok, "expressao invalida");
+            cl_fail(state, tok, "invalid expression");
             return NULL;
     }
 }
@@ -709,7 +709,7 @@ static cl_expr_t *cl_parse_expr(cl_parser_state_t *state) {
             return NULL;
         }
         if (cl_cur(state)->kind != CL_TOK_COLON) {
-            cl_fail(state, cl_cur(state), "esperado ':' na expressao condicional");
+            cl_fail(state, cl_cur(state), "expected ':' in conditional expression");
             return NULL;
         }
         cl_advance_token(state);
@@ -738,20 +738,20 @@ static cl_body_t *cl_parse_body(cl_parser_state_t *state, int top_level) {
 
         if (tok->kind == CL_TOK_EOF) {
             if (!top_level) {
-                cl_fail(state, tok, "esperado '}'");
+                cl_fail(state, tok, "expected '}'");
                 return NULL;
             }
             break;
         }
         if (tok->kind == CL_TOK_RBRACE) {
             if (top_level) {
-                cl_fail(state, tok, "'}' inesperado");
+                cl_fail(state, tok, "unexpected '}'");
                 return NULL;
             }
             break; /* caller consumes the '}' */
         }
         if (tok->kind != CL_TOK_IDENT) {
-            cl_fail(state, tok, "esperado identificador (atributo ou bloco)");
+            cl_fail(state, tok, "expected identifier (attribute or block)");
             return NULL;
         }
 
@@ -768,7 +768,7 @@ static cl_body_t *cl_parse_body(cl_parser_state_t *state, int top_level) {
             const cl_token_t *term_tok = cl_cur(state);
             if (term_tok->kind != CL_TOK_NEWLINE && term_tok->kind != CL_TOK_EOF &&
                 term_tok->kind != CL_TOK_RBRACE) {
-                cl_fail(state, term_tok, "esperado fim de linha apos o valor do atributo");
+                cl_fail(state, term_tok, "expected end of line after attribute value");
                 return NULL;
             }
             cl_body_append_attribute(state->doc, body, name_tok->text, value, name_tok->line, name_tok->col);
@@ -804,7 +804,7 @@ static cl_body_t *cl_parse_body(cl_parser_state_t *state, int top_level) {
             }
             const cl_token_t *brace_tok = cl_cur(state);
             if (brace_tok->kind != CL_TOK_LBRACE) {
-                cl_fail(state, brace_tok, "esperado '{' apos os rotulos do bloco");
+                cl_fail(state, brace_tok, "expected '{' after block labels");
                 return NULL;
             }
             cl_advance_token(state); /* '{' */
@@ -814,14 +814,14 @@ static cl_body_t *cl_parse_body(cl_parser_state_t *state, int top_level) {
             }
             const cl_token_t *close_tok = cl_cur(state);
             if (close_tok->kind != CL_TOK_RBRACE) {
-                cl_fail(state, close_tok, "esperado '}'");
+                cl_fail(state, close_tok, "expected '}'");
                 return NULL;
             }
             cl_advance_token(state); /* '}' */
             cl_body_append_block(state->doc, body, name_tok->text, labels, label_exprs, label_count, child,
                                   name_tok->line, name_tok->col);
         } else {
-            cl_fail(state, next_tok, "esperado '=' ou rotulo de bloco");
+            cl_fail(state, next_tok, "expected '=' or block label");
             return NULL;
         }
     }
@@ -897,7 +897,7 @@ cl_expr_t *cl_parser_parse_expr_string(cl_document_t *doc, const char *expr_text
 
     cl_expr_t *expr = cl_parse_expr(&state);
     if (!state.failed && cl_cur(&state)->kind != CL_TOK_EOF) {
-        cl_fail(&state, cl_cur(&state), "conteudo inesperado apos a expressao");
+        cl_fail(&state, cl_cur(&state), "unexpected content after expression");
     }
     free(tokens);
 

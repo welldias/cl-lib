@@ -70,7 +70,7 @@ cl_value_t *cl_bindings_object(cl_bindings_t *bindings) {
 /* True when `target` is `v` itself or appears anywhere inside it. Adding a
  * container into something it reaches would make the value cyclic, and the
  * deep copy made at evaluation time would never terminate. */
-static int cl_value_reaches(const cl_value_t *v, const cl_value_t *target) {
+int cl_value_reaches(const cl_value_t *v, const cl_value_t *target) {
     if (v == target) {
         return 1;
     }
@@ -156,6 +156,43 @@ const cl_value_t *cl_bindings_lookup(const cl_bindings_t *bindings, const char *
     for (size_t i = 0; i < bindings->count; i++) {
         if (strcmp(bindings->items[i].name, name) == 0) {
             return bindings->items[i].value;
+        }
+    }
+    return NULL;
+}
+
+int cl_bindings_set_function(cl_bindings_t *bindings, const char *name, size_t min_args, size_t max_args,
+                             cl_function_t fn, void *userdata) {
+    if (!bindings || !name || !name[0] || !fn || min_args > max_args) {
+        return -1;
+    }
+    cl_host_function_t *slot = NULL;
+    for (size_t i = 0; i < bindings->function_count; i++) {
+        if (strcmp(bindings->functions[i].name, name) == 0) {
+            slot = &bindings->functions[i];
+            break;
+        }
+    }
+    if (!slot) {
+        cl_array_grow_raw(&bindings->arena, (void **)&bindings->functions, &bindings->function_count,
+                           &bindings->function_capacity, sizeof(cl_host_function_t));
+        slot = &bindings->functions[bindings->function_count++];
+        slot->name = cl_arena_strdup_raw(&bindings->arena, name);
+    }
+    slot->min_args = min_args;
+    slot->max_args = max_args;
+    slot->fn = fn;
+    slot->userdata = userdata;
+    return 0;
+}
+
+const cl_host_function_t *cl_bindings_lookup_function(const cl_bindings_t *bindings, const char *name) {
+    if (!bindings) {
+        return NULL;
+    }
+    for (size_t i = 0; i < bindings->function_count; i++) {
+        if (strcmp(bindings->functions[i].name, name) == 0) {
+            return &bindings->functions[i];
         }
     }
     return NULL;

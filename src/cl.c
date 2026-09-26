@@ -40,19 +40,19 @@ cl_document_t *cl_load_string(const char *source, const char *source_name, cl_er
 cl_document_t *cl_load_file(const char *path, cl_error_t *err) {
     FILE *f = fopen(path, "rb");
     if (!f) {
-        cl_set_error(err, 0, 0, "nao foi possivel abrir o arquivo");
+        cl_set_error(err, 0, 0, "could not open the file");
         return NULL;
     }
 
     if (fseek(f, 0, SEEK_END) != 0) {
         fclose(f);
-        cl_set_error(err, 0, 0, "falha ao ler o arquivo");
+        cl_set_error(err, 0, 0, "failed to read the file");
         return NULL;
     }
     long size = ftell(f);
     if (size < 0 || fseek(f, 0, SEEK_SET) != 0) {
         fclose(f);
-        cl_set_error(err, 0, 0, "falha ao ler o arquivo");
+        cl_set_error(err, 0, 0, "failed to read the file");
         return NULL;
     }
 

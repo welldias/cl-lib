@@ -1,13 +1,13 @@
 description = <<EOF
 
-    Este pacote foi altamente inspirado na
-    consagrada ferramenta uv do Python!
+    This package was heavily inspired by
+    the acclaimed Python tool uv!
 EOF
 
 server "web" {
     startup_script = <<EOF
         #!/bin/bash
-        echo "Iniciando servidor..."
+        echo "Starting server..."
         apt-get update
         apt-get install -y nginx
     EOF

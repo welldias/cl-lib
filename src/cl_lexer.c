@@ -105,7 +105,7 @@ static int cl_lex_string(cl_lexer_t *lx, cl_error_t *err) {
         int c = cl_peek(lx, 0);
         if (c == '\0' || c == '\n') {
             free(buf.data);
-            return cl_lexer_error(err, start_line, start_col, "string sem fechamento");
+            return cl_lexer_error(err, start_line, start_col, "unterminated string");
         }
         if (c == '"') {
             cl_advance(lx);
@@ -124,7 +124,7 @@ static int cl_lex_string(cl_lexer_t *lx, cl_error_t *err) {
                 case 'r': decoded = '\r'; break;
                 default:
                     free(buf.data);
-                    return cl_lexer_error(err, lx->line, lx->col, "sequencia de escape invalida");
+                    return cl_lexer_error(err, lx->line, lx->col, "invalid escape sequence");
             }
             cl_strbuf_push(&buf, decoded);
             cl_advance(lx);
@@ -146,7 +146,7 @@ static int cl_lex_string(cl_lexer_t *lx, cl_error_t *err) {
                 int ic = cl_peek(lx, 0);
                 if (ic == '\0') {
                     free(buf.data);
-                    return cl_lexer_error(err, start_line, start_col, "string sem fechamento");
+                    return cl_lexer_error(err, start_line, start_col, "unterminated string");
                 }
                 if (ic == '"') {
                     cl_strbuf_push(&buf, '"');
@@ -207,7 +207,7 @@ static int cl_lex_heredoc(cl_lexer_t *lx, cl_error_t *err) {
     }
 
     if (!cl_is_ident_start(cl_peek(lx, 0))) {
-        return cl_lexer_error(err, start_line, start_col, "marcador de heredoc invalido");
+        return cl_lexer_error(err, start_line, start_col, "invalid heredoc marker");
     }
     size_t marker_start = lx->pos;
     cl_advance(lx);
@@ -217,7 +217,7 @@ static int cl_lex_heredoc(cl_lexer_t *lx, cl_error_t *err) {
     size_t marker_len = lx->pos - marker_start;
     char marker[128];
     if (marker_len >= sizeof(marker)) {
-        return cl_lexer_error(err, start_line, start_col, "marcador de heredoc muito longo");
+        return cl_lexer_error(err, start_line, start_col, "heredoc marker too long");
     }
     memcpy(marker, lx->src + marker_start, marker_len);
     marker[marker_len] = '\0';
@@ -226,7 +226,7 @@ static int cl_lex_heredoc(cl_lexer_t *lx, cl_error_t *err) {
         cl_advance(lx);
     }
     if (cl_peek(lx, 0) != '\n') {
-        return cl_lexer_error(err, lx->line, lx->col, "conteudo inesperado apos o marcador de heredoc");
+        return cl_lexer_error(err, lx->line, lx->col, "unexpected content after heredoc marker");
     }
     cl_advance(lx); /* newline right after the marker */
 
@@ -241,7 +241,7 @@ static int cl_lex_heredoc(cl_lexer_t *lx, cl_error_t *err) {
                 free(lines[i]);
             }
             free(lines);
-            return cl_lexer_error(err, start_line, start_col, "heredoc sem fechamento");
+            return cl_lexer_error(err, start_line, start_col, "unterminated heredoc");
         }
 
         size_t line_start = lx->pos;
@@ -424,7 +424,7 @@ int cl_lexer_tokenize(cl_document_t *doc, const char *source, cl_token_t **out_t
             while (!(cl_peek(&lx, 0) == '*' && cl_peek(&lx, 1) == '/')) {
                 if (cl_peek(&lx, 0) == '\0') {
                     free(lx.tokens);
-                    return cl_lexer_error(err, start_line, start_col, "comentario de bloco sem fechamento");
+                    return cl_lexer_error(err, start_line, start_col, "unterminated block comment");
                 }
                 cl_advance(&lx);
             }
@@ -539,7 +539,7 @@ int cl_lexer_tokenize(cl_document_t *doc, const char *source, cl_token_t **out_t
                     cl_lexer_push(&lx, CL_TOK_ANDAND, NULL, 0.0, line, col);
                 } else {
                     free(lx.tokens);
-                    return cl_lexer_error(err, line, col, "caractere inesperado");
+                    return cl_lexer_error(err, line, col, "unexpected character");
                 }
                 break;
             case '|':
@@ -549,13 +549,13 @@ int cl_lexer_tokenize(cl_document_t *doc, const char *source, cl_token_t **out_t
                     cl_lexer_push(&lx, CL_TOK_OROR, NULL, 0.0, line, col);
                 } else {
                     free(lx.tokens);
-                    return cl_lexer_error(err, line, col, "caractere inesperado");
+                    return cl_lexer_error(err, line, col, "unexpected character");
                 }
                 break;
             case '?': cl_advance(&lx); cl_lexer_push(&lx, CL_TOK_QUESTION, NULL, 0.0, line, col); break;
             default: {
                 free(lx.tokens);
-                return cl_lexer_error(err, line, col, "caractere inesperado");
+                return cl_lexer_error(err, line, col, "unexpected character");
             }
         }
     }

@@ -332,6 +332,57 @@ bools, numeric text becomes a number, anything else a string):
 ./build/bin/cl_tool deploy.cl env=prod replicas=6 build_id=a1b2c3
 ```
 
+## Host functions
+
+The same `cl_bindings_t` can register C callbacks that the document calls
+like built-ins:
+
+```c
+/* slug("Hello World") -> "hello-world" */
+static cl_value_t *slug(cl_call_t *call, void *userdata) {
+    const char *s = cl_value_as_string(cl_call_arg(call, 0));
+    if (!s) {
+        return cl_call_error(call, "argument 1 must be a string");
+    }
+    char buf[256];
+    size_t n = 0;
+    for (; s[n] && n + 1 < sizeof(buf); n++) {
+        buf[n] = s[n] == ' ' ? '-' : (char)tolower((unsigned char)s[n]);
+    }
+    buf[n] = '\0';
+    return cl_call_string(call, buf);
+}
+
+cl_bindings_set_function(b, "slug", 1, 1, slug, NULL);  /* name, min, max args */
+cl_bindings_set_function(b, "sum", 0, CL_FUNCTION_VARIADIC, sum, NULL);
+```
+
+```hcl
+path = "/posts/${slug(title)}"
+```
+
+- **Arity**: the callback only runs when the argument count is within
+  `[min_args, max_args]`; otherwise evaluation fails with
+  `slug() expects 1 argument, got 2`. Arguments arrive already evaluated,
+  with a trailing `...` already expanded.
+- **Arguments**: `cl_call_argc()` / `cl_call_arg()`, read with the usual
+  `cl_value_*` getters. They are shared with the rest of the document, so
+  never modify them.
+- **Results**: build them with `cl_call_string/number/bool/null/list/object`
+  and `cl_call_list_add` / `cl_call_object_set` (which only accept
+  containers created by the same call, and refuse cycles), or return an
+  argument as-is. Anything else, such as a value built with
+  `cl_bindings_*`, goes through `cl_call_copy()` first.
+- **Errors**: `return cl_call_error(call, "fmt", ...)` fails the evaluation
+  with `slug(): <message>` at the call's position. Returning `NULL` without
+  it fails with a generic message.
+- **Precedence**: a host function shadows a built-in of the same name.
+  Functions and value bindings live in separate namespaces, so `x` can be
+  both.
+- **Lifetime**: `userdata` is passed back to every call and must stay valid
+  while evaluating. Callbacks only run inside `cl_document_evaluate_with()`,
+  so the bindings can still be freed as soon as it returns.
+
 ## Block schemas
 
 The language never decides whether a block type "exists" or which
@@ -400,7 +451,7 @@ Rules:
 - Top-level blocks of an unregistered type are ignored, unless the schema
   is `strict`. Top-level attributes are never checked.
 - Validation stops at the first problem and reports its line and column,
-  for example `atributo 'gpu' nao permitido em bloco 'machine'`.
+  for example `attribute 'gpu' not allowed in block 'machine'`.
 - `block` and `strict` belong to the schema file format only. Ordinary
   documents still have no special names.
 
@@ -603,19 +654,73 @@ with exit status 1.
 
 ## Built-in functions
 
-| Function            | Behavior                                                                 |
-|----------------------|---------------------------------------------------------------------------|
-| `upper(s)`           | Uppercases a string                                                       |
-| `lower(s)`           | Lowercases a string                                                       |
-| `length(x)`          | Element count of a list, or character count of a string                   |
-| `concat(...)`        | Concatenates lists if every argument is a list; otherwise stringifies every argument and concatenates them as text |
+The host can add its own functions, or replace these, through
+[host functions](#host-functions). Calling an unknown function, or a
+function with the wrong number of arguments, is an evaluation error, not a parse error. Where a function
+takes a string, numbers and bools are accepted and converted the same way
+template interpolation does (`upper(1.5)` is `"1.5"`). String positions
+and lengths count bytes, not characters. A trailing `...` expands a list
+into arguments: `max(ports...)`.
 
-Calling an unregistered function is an evaluation error, not a parse error.
+**Strings**
+
+| Function                     | Behavior                                                                 |
+|------------------------------|---------------------------------------------------------------------------|
+| `upper(s)` / `lower(s)`      | Uppercases / lowercases a string                                          |
+| `length(x)`                  | Byte count of a string, item count of a list or object                    |
+| `concat(...)`                | Concatenates lists if every argument is a list; otherwise stringifies every argument and concatenates them as text |
+| `trim(s, cutset)`            | Removes leading and trailing characters found in `cutset`                 |
+| `trimspace(s)`               | Removes leading and trailing whitespace                                   |
+| `trimprefix(s, prefix)`      | Removes `prefix` if `s` starts with it                                    |
+| `trimsuffix(s, suffix)`      | Removes `suffix` if `s` ends with it                                      |
+| `replace(s, search, repl)`   | Replaces every literal occurrence of `search`                             |
+| `split(sep, s)`              | Splits into a list of strings (`split(",", "")` is `[""]`)                |
+| `join(sep, list)`            | Joins list items (strings, numbers, bools) with `sep`                     |
+| `substr(s, offset, length)`  | Substring; negative `offset` counts from the end, `length` -1 means "to the end" |
+| `startswith(s, prefix)` / `endswith(s, suffix)` / `strcontains(s, sub)` | Bool tests |
+| `format(fmt, args...)`       | `%s` (any string-like value), `%d` (integer), `%f` / `%.2f` (number), `%%` |
+
+**Numbers**
+
+| Function                     | Behavior                                                                 |
+|------------------------------|---------------------------------------------------------------------------|
+| `min(n...)` / `max(n...)`    | Smallest / largest argument                                               |
+| `abs(n)`                     | Absolute value                                                            |
+| `floor(n)` / `ceil(n)`       | Rounds down / up                                                          |
+| `round(n)`                   | Rounds to nearest, halves away from zero                                  |
+| `pow(base, exp)`             | `base` raised to `exp` (error when not a real number)                     |
+| `parseint(s, base)`          | Parses an integer string in base 2–36                                     |
+
+**Collections**
+
+| Function                     | Behavior                                                                 |
+|------------------------------|---------------------------------------------------------------------------|
+| `keys(obj)` / `values(obj)`  | Keys / values as a list, in declaration order                             |
+| `lookup(obj, key[, default])`| Value at `key`; `default` if missing (error if missing and no default)    |
+| `merge(obj...)`              | Merges objects; later ones win, keys keep their first position            |
+| `contains(list, value)`      | Whether `list` holds a value equal (`==`) to `value`                      |
+| `element(list, index)`       | Item at `index`, wrapping around past the end                             |
+| `slice(list, start, end)`    | Items from `start` (inclusive) to `end` (exclusive)                       |
+| `reverse(list)`              | Items in reverse order                                                    |
+| `distinct(list)`             | Removes duplicates, keeping first occurrences                             |
+| `flatten(list)`              | Flattens nested lists at any depth                                        |
+| `range([start,] end[, step])`| Numbers from `start` (default 0) up to, not including, `end`; step defaults to 1, or -1 when `start > end`; at most 1048576 items |
+| `zipmap(keys, values)`       | Builds an object from two lists of the same length                        |
+
+**Types and conversion**
+
+| Function                     | Behavior                                                                 |
+|------------------------------|---------------------------------------------------------------------------|
+| `type(x)`                    | `"string"`, `"number"`, `"bool"`, `"null"`, `"list"` or `"object"`        |
+| `tostring(x)`                | String form of a string, number or bool                                   |
+| `tonumber(x)`                | Number from a number or a numeric string                                  |
+| `tobool(x)`                  | Bool from a bool or `"true"` / `"false"`                                  |
+| `coalesce(x...)`             | First non-null argument                                                   |
+
+The `to*()` conversions return `null` unchanged.
 
 ## Known limitations
 
-- The host can inject values but not functions: only the built-ins above
-  are callable.
 - Template trim markers (`~`) don't survive serialization as `~`: the
   writer emits the already-trimmed text, which reparses to the same result.
 - NaN has no literal form: `cl_value_to_string()` and the document export

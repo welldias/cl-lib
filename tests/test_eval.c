@@ -1,6 +1,8 @@
 #include "cl/cl.h"
 #include "test_util.h"
 
+#include <stdlib.h>
+
 /* "var = { ... }" is an attribute holding an object: "var.field" resolves by
  * evaluating the attribute and reading a key off it. */
 static void test_attribute_form_resolves_traversal(void) {
@@ -509,19 +511,19 @@ static void test_dynamic_index_errors(void) {
         const char *expr;
         const char *fragment;
     } cases[] = {
-        {"zones[1.5]", "deve ser inteiro"},
-        {"zones[0.5 + 1]", "deve ser inteiro"},
-        {"zones[10]", "fora dos limites"},
-        {"zones[0 - 1]", "fora dos limites"},
-        {"zones[true]", "numero ou string"},
-        {"zones[null]", "numero ou string"},
-        {"sizes[zones[0]]", "chave 'a' nao encontrada"},
-        {"zones[p]", "nao e um objeto"},
-        {"sizes[0 + 0]", "nao e uma lista"},
-        {"zones[missing]", "referencia 'missing' nao encontrada"},
+        {"zones[1.5]", "must be an integer"},
+        {"zones[0.5 + 1]", "must be an integer"},
+        {"zones[10]", "out of range"},
+        {"zones[0 - 1]", "out of range"},
+        {"zones[true]", "a number or a string"},
+        {"zones[null]", "a number or a string"},
+        {"sizes[zones[0]]", "key 'a' not found"},
+        {"zones[p]", "is not an object"},
+        {"sizes[0 + 0]", "is not a list"},
+        {"zones[missing]", "reference 'missing' not found"},
         /* a dynamic index never doubles as a block label (only ".label"
          * steps do), so this can't reach plant "fern" */
-        {"plant[p].sunlight", "referencia 'plant' nao encontrada"},
+        {"plant[p].sunlight", "reference 'plant' not found"},
     };
 
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
@@ -531,6 +533,146 @@ static void test_dynamic_index_errors(void) {
     }
 
     check_eval_error("zones = [1, 2]\na = zones[a]\nx = a\n", "circular");
+}
+
+/* Each case evaluates "x = <expr>" and compares cl_value_to_string(x). */
+static void test_builtin_function_results(void) {
+    static const struct {
+        const char *expr;
+        const char *expected;
+    } cases[] = {
+        /* strings */
+        {"trim(\"??hi!?\", \"?!\")", "\"hi\""},
+        {"trimspace(\"  \\t hi \\n\")", "\"hi\""},
+        {"trimprefix(\"v1.2\", \"v\")", "\"1.2\""},
+        {"trimprefix(\"1.2\", \"v\")", "\"1.2\""},
+        {"trimsuffix(\"app.log\", \".log\")", "\"app\""},
+        {"replace(\"a-b-c\", \"-\", \"::\")", "\"a::b::c\""},
+        {"split(\",\", \"a,b,,c\")", "[\"a\", \"b\", \"\", \"c\"]"},
+        {"split(\",\", \"\")", "[\"\"]"},
+        {"join(\"-\", [1, true, \"z\"])", "\"1-true-z\""},
+        {"join(\",\", [])", "\"\""},
+        {"substr(\"hello world\", 0, 5)", "\"hello\""},
+        {"substr(\"hello world\", -5, -1)", "\"world\""},
+        {"substr(\"abc\", 1, 99)", "\"bc\""},
+        {"startswith(\"prod-api\", \"prod\")", "true"},
+        {"endswith(\"prod-api\", \"prod\")", "false"},
+        {"strcontains(\"prod-api\", \"d-a\")", "true"},
+        {"format(\"%s=%d (%.2f%%)\", \"x\", 42, 3.14159)", "\"x=42 (3.14%)\""},
+        {"format(\"%f\", 1.5)", "\"1.500000\""},
+        {"format(\"no verbs\")", "\"no verbs\""},
+        {"upper(1.5)", "\"1.5\""},
+        /* numbers */
+        {"min(3, -1, 2)", "-1"},
+        {"max([4, 9, 2]...)", "9"},
+        {"abs(-2.5)", "2.5"},
+        {"floor(-1.5)", "-2"},
+        {"ceil(1.2)", "2"},
+        {"round(2.5)", "3"},
+        {"round(-2.5)", "-3"},
+        {"pow(2, 10)", "1024"},
+        {"parseint(\"ff\", 16)", "255"},
+        {"parseint(\"-101\", 2)", "-5"},
+        /* collections */
+        {"keys({z = 1, a = 2})", "[\"z\", \"a\"]"},
+        {"values({z = 1, a = 2})", "[1, 2]"},
+        {"lookup({a = 1}, \"a\")", "1"},
+        {"lookup({a = 1}, \"b\", \"def\")", "\"def\""},
+        {"merge({a = 1, b = 2}, {b = 3, c = 4})", "{\n  a = 1\n  b = 3\n  c = 4\n}"},
+        {"contains([1, [2], \"x\"], [2])", "true"},
+        {"contains([1, 2], \"1\")", "false"},
+        {"element([\"a\", \"b\", \"c\"], 4)", "\"b\""},
+        {"slice([1, 2, 3, 4], 1, 3)", "[2, 3]"},
+        {"slice([1, 2], 2, 2)", "[]"},
+        {"reverse([1, 2, 3])", "[3, 2, 1]"},
+        {"distinct([1, 2, 1, \"1\", 2])", "[1, 2, \"1\"]"},
+        {"flatten([1, [2, [3, [4]]], []])", "[1, 2, 3, 4]"},
+        {"range(3)", "[0, 1, 2]"},
+        {"range(1, 4)", "[1, 2, 3]"},
+        {"range(3, 0)", "[3, 2, 1]"},
+        {"range(10, 0, -3)", "[10, 7, 4, 1]"},
+        {"range(0, 1, 0.25)", "[0, 0.25, 0.5, 0.75]"},
+        {"range(5, 1, 1)", "[]"},
+        {"zipmap([\"a\", \"b\", \"a\"], [1, 2, 3])", "{\n  a = 3\n  b = 2\n}"},
+        /* types and conversion */
+        {"type(null)", "\"null\""},
+        {"type({})", "\"object\""},
+        {"type([])", "\"list\""},
+        {"tostring(12)", "\"12\""},
+        {"tostring(null)", "null"},
+        {"tonumber(\"1.5e2\")", "150"},
+        {"tonumber(7)", "7"},
+        {"tobool(\"false\")", "false"},
+        {"coalesce(null, null, \"x\", \"y\")", "\"x\""},
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        char source[256];
+        snprintf(source, sizeof(source), "x = %s\n", cases[i].expr);
+        cl_error_t err;
+        cl_document_t *doc = cl_load_string(source, "builtin_results", &err);
+        CL_CHECK(doc != NULL);
+        if (!doc) {
+            fprintf(stderr, "  parse error in: %s  %s\n", source, err.message);
+            continue;
+        }
+        cl_evaluated_t *result = cl_document_evaluate(doc, &err);
+        CL_CHECK(result != NULL);
+        if (result) {
+            cl_evaluated_attribute_t *x = cl_evaluated_body_get_attribute(cl_evaluated_root(result), "x");
+            char *text = x ? cl_value_to_string(x->value) : NULL;
+            CL_CHECK_STREQ(text, cases[i].expected);
+            free(text);
+            cl_evaluated_free(result);
+        } else {
+            fprintf(stderr, "  eval error in: %s  %s\n", source, err.message);
+        }
+        cl_document_free(doc);
+    }
+}
+
+static void test_builtin_function_errors(void) {
+    static const struct {
+        const char *source;
+        const char *fragment;
+    } cases[] = {
+        {"x = upper()\n", "upper() expects 1 argument, got 0"},
+        {"x = lookup({})\n", "lookup() expects 2 to 3 arguments, got 1"},
+        {"x = concat()\n", "concat() expects at least 1 argument, got 0"},
+        {"x = upper([1])\n", "upper() argument 1 must be a string, got list"},
+        {"x = length(1)\n", "length() argument 1 must be a string, list or object, got number"},
+        {"x = join(\",\", [1, [2]])\n", "join() list element 2 must be a string, got list"},
+        {"x = replace(\"a\", \"\", \"b\")\n", "replace() argument 2 must not be empty"},
+        {"x = split(\"\", \"a\")\n", "split() argument 1 must not be empty"},
+        {"x = substr(\"abc\", 4, 1)\n", "out of range"},
+        {"x = substr(\"abc\", 1.5, 1)\n", "substr() argument 2 must be an integer"},
+        {"x = format(\"%s %s\", 1)\n", "more verbs than arguments"},
+        {"x = format(\"%s\", 1, 2)\n", "1 more argument(s) than verbs"},
+        {"x = format(\"%x\", 1)\n", "does not support the verb '%x'"},
+        {"x = format(\"%d\", 1.5)\n", "format() argument 2 must be an integer"},
+        {"x = format(\"50%\")\n", "incomplete"},
+        {"x = min(1, \"2\")\n", "min() argument 2 must be a number, got string"},
+        {"x = pow(-8, 0.5)\n", "not a real number"},
+        {"x = parseint(\"12z\", 10)\n", "cannot parse"},
+        {"x = parseint(\"1\", 1)\n", "base must be between 2 and 36"},
+        {"x = keys([1])\n", "keys() argument 1 must be an object, got list"},
+        {"x = lookup({a = 1}, \"b\")\n", "lookup() key 'b' not found"},
+        {"x = merge({}, 1)\n", "merge() argument 2 must be an object"},
+        {"x = element([], 0)\n", "empty list"},
+        {"x = element([1], -1)\n", "must not be negative"},
+        {"x = slice([1, 2], 1, 3)\n", "out of bounds"},
+        {"x = range(0, 1, 0)\n", "step must not be zero"},
+        {"x = range(1e12)\n", "more than"},
+        {"x = zipmap([\"a\"], [])\n", "1 keys but 0 values"},
+        {"x = tonumber(\"12abc\")\n", "cannot convert \"12abc\""},
+        {"x = tonumber(\" 1\")\n", "cannot convert"},
+        {"x = tobool(\"yes\")\n", "cannot convert \"yes\" to a bool"},
+        {"x = coalesce(null)\n", "only null"},
+        {"x = nope(1)\n", "unknown function 'nope'"},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        check_eval_error(cases[i].source, cases[i].fragment);
+    }
 }
 
 /* Expressions inside "${...}"/"%{...}" are re-parsed from a substring, but
@@ -587,6 +729,8 @@ void cl_test_run_eval(void) {
     test_block_label_resolution_prefers_longest_match();
     test_calling_unregistered_function_is_eval_error();
     test_builtin_functions();
+    test_builtin_function_results();
+    test_builtin_function_errors();
     test_duplicate_top_level_attribute_first_one_wins();
     test_postfix_chaining_evaluates();
     test_circular_reference_is_eval_error();

@@ -1,6 +1,6 @@
-# "var" e "local" aqui sao atributos de topo literais (objetos), nao os
-# blocos magicos "variable"/"locals" do Terraform - e o que a resolucao
-# agnostica da lib cl exige para "var.x"/"local.x" resolverem.
+# "var" and "local" here are plain top-level attributes (objects), not
+# Terraform's magic "variable"/"locals" blocks - that is what the cl
+# library's name-agnostic resolution needs for "var.x"/"local.x" to resolve.
 var = {
   first_name = "Ada"
   last_name  = "Lovelace"

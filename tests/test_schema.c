@@ -88,18 +88,18 @@ static void test_valid_documents(void) {
 static void test_structural_errors(void) {
     cl_schema_t *schema = machine_schema(0);
     check_schema(schema, "machine \"a\" {\n  cpu = 1\n  memory = \"x\"\n  gpu = 1\n}\n", NULL, 0,
-                 "atributo 'gpu' nao permitido em bloco 'machine'", 4, 3);
+                 "attribute 'gpu' not allowed in block 'machine'", 4, 3);
     check_schema(schema, "x = 1\n\nmachine \"a\" {\n  cpu = 1\n}\n", NULL, 0,
-                 "atributo obrigatorio 'memory' ausente em bloco 'machine'", 3, 1);
+                 "required attribute 'memory' missing in block 'machine'", 3, 1);
     check_schema(schema, "machine \"a\" {\n  cpu = 1\n  cpu = 2\n  memory = \"x\"\n}\n", NULL, 0,
-                 "atributo 'cpu' duplicado em bloco 'machine'", 3, 3);
+                 "duplicate attribute 'cpu' in block 'machine'", 3, 3);
     check_schema(schema, "machine \"a\" {\n  cpu = 1\n  memory = \"x\"\n  nic {\n  }\n}\n", NULL, 0,
-                 "bloco 'nic' nao permitido dentro de 'machine'", 4, 3);
+                 "block 'nic' not allowed inside 'machine'", 4, 3);
     /* sub-blocks are validated recursively with their own rules */
     check_schema(schema, "machine \"a\" {\n  cpu = 1\n  memory = \"x\"\n  disk {\n    kind = \"ssd\"\n  }\n}\n", NULL,
-                 0, "atributo obrigatorio 'size' ausente em bloco 'disk'", 4, 3);
+                 0, "required attribute 'size' missing in block 'disk'", 4, 3);
     check_schema(schema, "machine \"a\" {\n  cpu = 1\n  memory = \"x\"\n  disk {\n    size = 1\n    iops = 3\n  }\n}\n",
-                 NULL, 0, "atributo 'iops' nao permitido em bloco 'disk'", 6, 5);
+                 NULL, 0, "attribute 'iops' not allowed in block 'disk'", 6, 5);
     /* a registered sub-block type is only allowed where it was declared */
     check_schema(schema, "disk {\n  size = 1\n}\n", NULL, 0, NULL, 0, 0);
     cl_schema_free(schema);
@@ -109,23 +109,23 @@ static void test_type_errors(void) {
     cl_schema_t *schema = machine_schema(0);
     /* literals are checked without evaluating */
     check_schema(schema, "machine \"a\" {\n  cpu = \"4\"\n  memory = \"x\"\n}\n", NULL, 0,
-                 "atributo 'cpu' em bloco 'machine' deve ser number, mas e string", 2, 3);
+                 "attribute 'cpu' in block 'machine' must be number, but is string", 2, 3);
     check_schema(schema, "machine \"a\" {\n  cpu = 1\n  memory = \"x\"\n  tags = {a = 1}\n}\n", NULL, 0,
-                 "deve ser list, mas e object", 4, 3);
-    check_schema(schema, "machine \"a\" {\n  cpu = null\n  memory = \"x\"\n}\n", NULL, 0, "deve ser number, mas e null",
+                 "must be list, but is object", 4, 3);
+    check_schema(schema, "machine \"a\" {\n  cpu = null\n  memory = \"x\"\n}\n", NULL, 0, "must be number, but is null",
                  2, 3);
     /* expressions only once the evaluated result is available */
     check_schema(schema, "n = \"4\"\nmachine \"a\" {\n  cpu = n\n  memory = \"x\"\n}\n", NULL, 1,
-                 "deve ser number, mas e string", 3, 3);
+                 "must be number, but is string", 3, 3);
     check_schema(schema, "machine \"a\" {\n  cpu = 1\n  memory = \"${1 + 1}GB\"\n  tags = concat(\"a\", \"b\")\n}\n",
-                 NULL, 1, "atributo 'tags' em bloco 'machine' deve ser list, mas e string", 4, 3);
+                 NULL, 1, "attribute 'tags' in block 'machine' must be list, but is string", 4, 3);
     check_schema(schema, "machine \"a\" {\n  cpu = 1\n  memory = \"x\"\n  disk {\n    size = true ? \"big\" : 1\n  }\n}\n",
-                 NULL, 1, "atributo 'size' em bloco 'disk' deve ser number, mas e string", 5, 5);
+                 NULL, 1, "attribute 'size' in block 'disk' must be number, but is string", 5, 5);
 
     /* values injected by the host are checked the same way */
     cl_bindings_t *bad = cl_bindings_new();
     cl_bindings_set_string(bad, "c", "four");
-    check_schema(schema, "machine \"a\" {\n  cpu = c\n  memory = \"x\"\n}\n", bad, 1, "deve ser number, mas e string", 2,
+    check_schema(schema, "machine \"a\" {\n  cpu = c\n  memory = \"x\"\n}\n", bad, 1, "must be number, but is string", 2,
                  3);
     cl_bindings_free(bad);
     cl_bindings_t *good = cl_bindings_new();
@@ -149,7 +149,7 @@ static void test_type_errors(void) {
 static void test_strict_mode(void) {
     cl_schema_t *schema = machine_schema(1);
     check_schema(schema, "x = 1\nmachine \"a\" {\n  cpu = 1\n  memory = \"x\"\n}\n", NULL, 0, NULL, 0, 0);
-    check_schema(schema, "x = 1\nserver \"x\" {\n  a = 1\n}\n", NULL, 0, "tipo de bloco 'server' nao registrado no schema",
+    check_schema(schema, "x = 1\nserver \"x\" {\n  a = 1\n}\n", NULL, 0, "block type 'server' not registered in the schema",
                  2, 1);
     cl_schema_free(schema);
 }
@@ -175,7 +175,7 @@ static void test_schema_api(void) {
         CL_CHECK(cl_schema_block_add_attr(first, name, CL_TYPE_ANY, 0) == 0);
     }
     CL_CHECK(cl_schema_block_add_attr(first, "late", CL_TYPE_BOOL, 1) == 0);
-    check_schema(schema, "b0 {\n  a = 1\n  a99 = null\n}\n", NULL, 0, "atributo obrigatorio 'late' ausente em bloco 'b0'",
+    check_schema(schema, "b0 {\n  a = 1\n  a99 = null\n}\n", NULL, 0, "required attribute 'late' missing in block 'b0'",
                  1, 1);
     check_schema(schema, "b0 {\n  a = 1\n  late = false\n  inner {\n  }\n}\nb42 {\n}\n", NULL, 0, NULL, 0, 0);
 
@@ -255,36 +255,36 @@ static void check_schema_load_error(const char *source, const char *fragment, in
 
 static void test_schema_file_errors(void) {
     check_schema_load_error("block \"m\" {\n  cpu = { type = \"number\", requred = true }\n}\n",
-                            "chave 'requred' desconhecida na regra do atributo 'cpu'", 2, 38);
-    check_schema_load_error("block \"m\" {\n  cpu = \"integer\"\n}\n", "tipo 'integer' invalido", 2, 9);
-    check_schema_load_error("block \"m\" {\n  cpu = { type = 1 }\n}\n", "tipo deve ser uma string literal", 2, 18);
-    check_schema_load_error("block \"m\" {\n  cpu = { required = \"yes\" }\n}\n", "'required' deve ser true ou false", 2,
+                            "unknown key 'requred' in rule of attribute 'cpu'", 2, 38);
+    check_schema_load_error("block \"m\" {\n  cpu = \"integer\"\n}\n", "invalid type 'integer'", 2, 9);
+    check_schema_load_error("block \"m\" {\n  cpu = { type = 1 }\n}\n", "type must be a string literal", 2, 18);
+    check_schema_load_error("block \"m\" {\n  cpu = { required = \"yes\" }\n}\n", "'required' must be true or false", 2,
                             22);
-    check_schema_load_error("block \"m\" {\n  cpu = number\n}\n", "regra do atributo 'cpu' deve ser", 2, 3);
-    check_schema_load_error("block \"m\" {\n  cpu = \"${t}\"\n}\n", "regra do atributo 'cpu' deve ser", 2, 3);
-    check_schema_load_error("block {\n}\n", "precisa de exatamente 1 rotulo", 1, 1);
-    check_schema_load_error("block \"a\" \"b\" {\n}\n", "precisa de exatamente 1 rotulo", 1, 1);
-    check_schema_load_error("block \"m\" {\n}\nblock \"m\" {\n}\n", "tipo de bloco 'm' duplicado no schema", 3, 1);
+    check_schema_load_error("block \"m\" {\n  cpu = number\n}\n", "rule of attribute 'cpu' must be", 2, 3);
+    check_schema_load_error("block \"m\" {\n  cpu = \"${t}\"\n}\n", "rule of attribute 'cpu' must be", 2, 3);
+    check_schema_load_error("block {\n}\n", "needs exactly 1 label", 1, 1);
+    check_schema_load_error("block \"a\" \"b\" {\n}\n", "needs exactly 1 label", 1, 1);
+    check_schema_load_error("block \"m\" {\n}\nblock \"m\" {\n}\n", "duplicate block type 'm' in the schema", 3, 1);
     check_schema_load_error("block \"m\" {\n  block \"d\" {\n  }\n  block \"d\" {\n  }\n}\n",
-                            "tipo de bloco 'd' duplicado no schema", 4, 3);
-    check_schema_load_error("block \"m\" {\n  a = \"any\"\n  a = \"list\"\n}\n", "atributo 'a' duplicado no schema", 3, 3);
-    check_schema_load_error("version = 1\n", "item de topo 'version' desconhecido no schema", 1, 1);
-    check_schema_load_error("strict = \"yes\"\n", "'strict' deve ser true ou false", 1, 1);
-    check_schema_load_error("rule \"m\" {\n}\n", "esperado bloco 'block' no schema, encontrado 'rule'", 1, 1);
-    check_schema_load_error("block \"m\" {\n  rule \"d\" {\n  }\n}\n", "esperado bloco 'block'", 2, 3);
-    check_schema_load_error("block \"m\" {\n", "esperado '}'", 2, 1);
+                            "duplicate block type 'd' in the schema", 4, 3);
+    check_schema_load_error("block \"m\" {\n  a = \"any\"\n  a = \"list\"\n}\n", "duplicate attribute 'a' in the schema", 3, 3);
+    check_schema_load_error("version = 1\n", "unknown top-level item 'version' in the schema", 1, 1);
+    check_schema_load_error("strict = \"yes\"\n", "'strict' must be true or false", 1, 1);
+    check_schema_load_error("rule \"m\" {\n}\n", "expected 'block' block in the schema, found 'rule'", 1, 1);
+    check_schema_load_error("block \"m\" {\n  rule \"d\" {\n  }\n}\n", "expected 'block' block", 2, 3);
+    check_schema_load_error("block \"m\" {\n", "expected '}'", 2, 1);
 
-    check_schema_load_error("block \"m\" {\n  k = []\n}\n", "lista de valores do atributo 'k' nao pode ser vazia", 2, 7);
-    check_schema_load_error("block \"m\" {\n  k = [\"a\", 1]\n}\n", "valores do atributo 'k' devem ser strings literais", 2,
+    check_schema_load_error("block \"m\" {\n  k = []\n}\n", "value list of attribute 'k' must not be empty", 2, 7);
+    check_schema_load_error("block \"m\" {\n  k = [\"a\", 1]\n}\n", "values of attribute 'k' must be string literals", 2,
                             13);
-    check_schema_load_error("block \"m\" {\n  k = [\"a\", \"${x}\"]\n}\n", "devem ser strings literais", 2, 13);
-    check_schema_load_error("block \"m\" {\n  k = [\"a\", \"b\", \"a\"]\n}\n", "valor 'a' repetido no atributo 'k'", 2,
+    check_schema_load_error("block \"m\" {\n  k = [\"a\", \"${x}\"]\n}\n", "must be string literals", 2, 13);
+    check_schema_load_error("block \"m\" {\n  k = [\"a\", \"b\", \"a\"]\n}\n", "value 'a' repeated in attribute 'k'", 2,
                             18);
-    check_schema_load_error("block \"m\" {\n  k = { values = \"a\" }\n}\n", "'values' deve ser uma lista de strings", 2,
+    check_schema_load_error("block \"m\" {\n  k = { values = \"a\" }\n}\n", "'values' must be a list of strings", 2,
                             18);
     check_schema_load_error("block \"m\" {\n  k = { type = \"number\", values = [\"a\"] }\n}\n",
-                            "'values' so pode ser usado com type = \"string\"", 2, 16);
-    check_schema_load_error("block \"m\" {\n  k = true\n}\n", "uma lista de valores", 2, 3);
+                            "'values' can only be used with type = \"string\"", 2, 16);
+    check_schema_load_error("block \"m\" {\n  k = true\n}\n", "a list of values", 2, 3);
 
     cl_error_t err;
     CL_CHECK(cl_schema_load_file("/nonexistent/schema.cl", &err) == NULL);
@@ -295,8 +295,8 @@ static void test_schema_file_errors(void) {
         &err);
     CL_CHECK(full != NULL);
     if (full) {
-        check_schema(full, "fan {\n}\n", NULL, 0, "atributo obrigatorio 'speed' ausente", 1, 1);
-        check_schema(full, "fan {\n  speed = \"mid\"\n}\n", NULL, 0, "deve ser um de: low, high; mas e 'mid'", 2, 3);
+        check_schema(full, "fan {\n}\n", NULL, 0, "required attribute 'speed' missing", 1, 1);
+        check_schema(full, "fan {\n  speed = \"mid\"\n}\n", NULL, 0, "must be one of: low, high; but is 'mid'", 2, 3);
         check_schema(full, "fan {\n  speed = \"low\"\n}\n", NULL, 0, NULL, 0, 0);
         cl_schema_free(full);
     }
@@ -322,16 +322,16 @@ static void test_enum_values(void) {
 
     /* a literal outside the set is caught without evaluating */
     snprintf(source, sizeof(source), "%s    kind = \"sata\"\n  }\n}\n", prefix);
-    check_schema(schema, source, NULL, 0, "atributo 'kind' em bloco 'disk' deve ser um de: ssd, hdd, nvme; mas e 'sata'",
+    check_schema(schema, source, NULL, 0, "attribute 'kind' in block 'disk' must be one of: ssd, hdd, nvme; but is 'sata'",
                  6, 5);
 
     /* matching is exact: no case folding */
     snprintf(source, sizeof(source), "%s    kind = \"SSD\"\n  }\n}\n", prefix);
-    check_schema(schema, source, NULL, 0, "mas e 'SSD'", 6, 5);
+    check_schema(schema, source, NULL, 0, "but is 'SSD'", 6, 5);
 
     /* a non-string is a type error, reported as such */
     snprintf(source, sizeof(source), "%s    kind = 2\n  }\n}\n", prefix);
-    check_schema(schema, source, NULL, 0, "deve ser string, mas e number", 6, 5);
+    check_schema(schema, source, NULL, 0, "must be string, but is number", 6, 5);
 
     /* expressions (and bindings) are checked once the result is available */
     snprintf(source, sizeof(source), "%s    kind = lower(\"HDD\")\n  }\n}\n", prefix);
@@ -341,7 +341,7 @@ static void test_enum_values(void) {
     cl_bindings_set_string(b, "k", "ss");
     check_schema(schema, source, b, 0, NULL, 0, 0);
     cl_bindings_set_string(b, "k", "fl");
-    check_schema(schema, source, b, 1, "deve ser um de: ssd, hdd, nvme; mas e 'fld'", 6, 5);
+    check_schema(schema, source, b, 1, "must be one of: ssd, hdd, nvme; but is 'fld'", 6, 5);
     cl_bindings_free(b);
     cl_schema_free(schema);
 
@@ -349,7 +349,7 @@ static void test_enum_values(void) {
     cl_schema_t *req = cl_schema_new();
     static const char *levels[] = {"low", "high"};
     CL_CHECK(cl_schema_block_add_enum(cl_schema_add_block(req, "fan"), "speed", levels, 2, 1) == 0);
-    check_schema(req, "fan {\n}\n", NULL, 0, "atributo obrigatorio 'speed' ausente em bloco 'fan'", 1, 1);
+    check_schema(req, "fan {\n}\n", NULL, 0, "required attribute 'speed' missing in block 'fan'", 1, 1);
     check_schema(req, "fan {\n  speed = \"high\"\n}\n", NULL, 0, NULL, 0, 0);
     cl_schema_free(req);
 
@@ -376,7 +376,7 @@ static void test_enum_values(void) {
         many[i] = names[i];
     }
     CL_CHECK(cl_schema_block_add_enum(blk, "long", many, 40, 0) == 0);
-    check_schema(api, "b {\n  long = \"nope\"\n}\n", NULL, 0, "deve ser um de: v00, v01", 2, 3);
+    check_schema(api, "b {\n  long = \"nope\"\n}\n", NULL, 0, "must be one of: v00, v01", 2, 3);
     cl_schema_free(api);
 }
 

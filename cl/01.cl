@@ -1,4 +1,4 @@
-# Configurações globais do Terraform
+# Global Terraform settings
 terraform {
   required_version = ">= 1.5.0"
 
@@ -10,11 +10,11 @@ terraform {
   }
 }
 
-# Configuração específica do provedor AWS
+# AWS provider-specific settings
 provider "aws" {
   region = var.aws_region
 
-  # Default tags aplicadas a todos os recursos criados por este provider
+  # Default tags applied to every resource created by this provider
   default_tags {
     tags = {
       Project   = "Infra-Core"
