@@ -37,11 +37,13 @@ Build options (all set on `CMakeLists.txt` / `src/CMakeLists.txt`):
 
 | Option                  | Default | Effect                                           |
 |--------------------------|---------|---------------------------------------------------|
-| `CL_BUILD_EXAMPLES`      | `ON`    | Build `cl_example` and `cl_tool`                   |
-| `CL_BUILD_TESTS`         | `ON`    | Build and register the `cl_tests` CTest suite      |
+| `CL_BUILD_EXAMPLES`      | `ON`¹   | Build `cl_example` and `cl_tool`                   |
+| `CL_BUILD_TESTS`         | `ON`¹   | Build and register the `cl_tests` CTest suite      |
 | `CL_BUILD_STATIC`        | `ON`    | Build the static library (`libcl.a`)               |
 | `CL_BUILD_SHARED`        | `ON`    | Build the shared library (`libcl.so`)              |
 | `CL_ENABLE_SANITIZERS`   | `OFF`   | Instrument everything with ASan + UBSan            |
+
+¹ `OFF` when cl is built as a subproject (see below).
 
 To build with sanitizers enabled:
 
@@ -49,6 +51,28 @@ To build with sanitizers enabled:
 cmake -S . -B build-asan -DCL_ENABLE_SANITIZERS=ON
 cmake --build build-asan
 ```
+
+## Using cl from another CMake project
+
+cl can be pulled in with `FetchContent` (or `add_subdirectory`):
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(cl
+    GIT_REPOSITORY https://github.com/welldias/cl-lib.git
+    GIT_TAG        main
+)
+FetchContent_MakeAvailable(cl)
+
+target_link_libraries(my_app PRIVATE cl::cl)   # #include <cl/cl.h>
+```
+
+`cl::cl` is the shared library when `CL_BUILD_SHARED` is on, otherwise the
+static one; `cl::static` and `cl::shared` pick one explicitly. As a
+subproject, cl leaves the parent's build type and output directories alone,
+skips its examples and tests, and does not define the `cppcheck` target.
+To link only statically, set `CL_BUILD_SHARED` to `OFF` before
+`FetchContent_MakeAvailable`.
 
 ## Running the tests
 

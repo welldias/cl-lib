@@ -33,7 +33,7 @@ endif()
 
 if(CL_BUILD_STATIC)
     add_library(cl_static STATIC ${CL_SOURCES})
-    target_include_directories(cl_static PUBLIC ${CMAKE_SOURCE_DIR}/include)
+    target_include_directories(cl_static PUBLIC ${PROJECT_SOURCE_DIR}/include)
     target_link_libraries(cl_static PRIVATE cl_warnings cl_sanitizers)
     if(CL_MATH_LIBRARY)
         target_link_libraries(cl_static PRIVATE ${CL_MATH_LIBRARY})
@@ -49,7 +49,7 @@ endif()
 
 if(CL_BUILD_SHARED)
     add_library(cl_shared SHARED ${CL_SOURCES})
-    target_include_directories(cl_shared PUBLIC ${CMAKE_SOURCE_DIR}/include)
+    target_include_directories(cl_shared PUBLIC ${PROJECT_SOURCE_DIR}/include)
     target_link_libraries(cl_shared PRIVATE cl_warnings cl_sanitizers)
     if(CL_MATH_LIBRARY)
         target_link_libraries(cl_shared PRIVATE ${CL_MATH_LIBRARY})
@@ -65,7 +65,18 @@ endif()
 # `cl` is the default target other parts of the build (e.g. the example) link
 # against: shared when available, falling back to static otherwise.
 if(CL_BUILD_SHARED)
-    add_library(cl ALIAS cl_shared)
+    set(CL_DEFAULT_TARGET cl_shared)
 else()
-    add_library(cl ALIAS cl_static)
+    set(CL_DEFAULT_TARGET cl_static)
+endif()
+add_library(cl ALIAS ${CL_DEFAULT_TARGET})
+
+# Namespaced aliases for parent projects using add_subdirectory() or
+# FetchContent, e.g. target_link_libraries(app PRIVATE cl::cl).
+add_library(cl::cl ALIAS ${CL_DEFAULT_TARGET})
+if(CL_BUILD_STATIC)
+    add_library(cl::static ALIAS cl_static)
+endif()
+if(CL_BUILD_SHARED)
+    add_library(cl::shared ALIAS cl_shared)
 endif()
