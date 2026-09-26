@@ -778,7 +778,7 @@ static cl_value_t *cl_fn_flatten(cl_eval_ctx_t *ctx, cl_value_t **args, size_t a
 /* range(end) / range(start, end) / range(start, end, step): end is
  * exclusive. Without a step it is 1, or -1 when start > end. */
 static cl_value_t *cl_fn_range(cl_eval_ctx_t *ctx, cl_value_t **args, size_t argc, int line, int col) {
-    double nums[3];
+    double nums[3] = {0, 0, 0};
     for (size_t i = 0; i < argc; i++) {
         if (cl_fn_number(ctx, args[i], "range", "argument", i + 1, &nums[i], line, col) != 0) {
             return NULL;
