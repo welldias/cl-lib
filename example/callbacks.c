@@ -50,14 +50,31 @@ static cl_value_t *fn_sum(cl_call_t *call, void *userdata) {
     return cl_call_number(call, total);
 }
 
+/* Parses a dotted IPv4 address into its four octets. Returns 0 on success. */
+static int parse_ipv4(const char *s, unsigned octets[4]) {
+    for (int i = 0; i < 4; i++) {
+        char *end;
+        if (!isdigit((unsigned char)*s)) {
+            return -1;
+        }
+        unsigned long v = strtoul(s, &end, 10);
+        if (v > 255 || *end != (i < 3 ? '.' : '\0')) {
+            return -1;
+        }
+        octets[i] = (unsigned)v;
+        s = end + 1;
+    }
+    return 0;
+}
+
 /* cidr_hosts("10.0.0.0", 3) -> ["10.0.0.1", "10.0.0.2", "10.0.0.3"]:
  * builds a new list. */
 static cl_value_t *fn_cidr_hosts(cl_call_t *call, void *userdata) {
     (void)userdata;
     const char *base = cl_value_as_string(cl_call_arg(call, 0));
     double count;
-    unsigned a, b, c, d;
-    if (!base || sscanf(base, "%u.%u.%u.%u", &a, &b, &c, &d) != 4) {
+    unsigned ip4[4];
+    if (!base || parse_ipv4(base, ip4) != 0) {
         return cl_call_error(call, "argument 1 must be an IPv4 address");
     }
     if (cl_value_as_number(cl_call_arg(call, 1), &count) != 0 || count < 0 || count > 254) {
@@ -66,7 +83,7 @@ static cl_value_t *fn_cidr_hosts(cl_call_t *call, void *userdata) {
     cl_value_t *list = cl_call_list(call);
     for (unsigned i = 1; i <= (unsigned)count; i++) {
         char ip[32];
-        snprintf(ip, sizeof(ip), "%u.%u.%u.%u", a, b, c, d + i);
+        snprintf(ip, sizeof(ip), "%u.%u.%u.%u", ip4[0], ip4[1], ip4[2], ip4[3] + i);
         cl_call_list_add(call, list, cl_call_string(call, ip));
     }
     return list;
